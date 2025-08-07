@@ -13,7 +13,6 @@
       background-size: 400% 400%;
       animation: gradientBG 15s ease infinite;
       display: flex;
-      flex-direction: column;
       justify-content: center;
       align-items: center;
       font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -25,33 +24,6 @@
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
       animation: pulse 3s ease-in-out infinite;
-      cursor: pointer;
-      margin-bottom: 40px;
-    }
-
-    button {
-      font-size: 1.5rem;
-      padding: 1rem 2rem;
-      background-color: #ffffff;
-      border: none;
-      border-radius: 10px;
-      cursor: pointer;
-      font-weight: bold;
-      box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-      transition: transform 0.2s ease;
-    }
-
-    button:active {
-      transform: scale(0.95);
-    }
-
-    .flash {
-      animation: flash 0.2s alternate infinite;
-    }
-
-    @keyframes flash {
-      0% { background-color: #ff0066; color: white; }
-      100% { background-color: #00ffff; color: black; }
     }
 
     @keyframes gradientBG {
@@ -73,32 +45,6 @@
   </style>
 </head>
 <body>
-  <h1>David Woodbury</h1>
-
-  <button id="danceBtn">Click Me for Dance Party</button>
-
-  <!-- Drum sounds -->
-  <audio id="kick" src="https://www.soundjay.com/button/sounds/button-10.mp3" preload="auto"></audio>
-  <audio id="snare" src="https://www.soundjay.com/button/sounds/button-4.mp3" preload="auto"></audio>
-  <audio id="hihat" src="https://www.soundjay.com/button/sounds/button-20.mp3" preload="auto"></audio>
-
-  <script>
-    const button = document.getElementById('danceBtn');
-    const kick = document.getElementById('kick');
-    const snare = document.getElementById('snare');
-    const hihat = document.getElementById('hihat');
-
-    button.addEventListener('click', () => {
-      button.classList.add('flash');
-      const interval = setInterval(() => {
-        [kick, snare, hihat][Math.floor(Math.random() * 3)].play();
-      }, 300); // Play sound every 300ms
-
-      setTimeout(() => {
-        clearInterval(interval);
-        button.classList.remove('flash');
-      }, 3000); // Stop after 3 seconds
-    });
-  </script>
+  <h1>You are welcome, Jason!</h1>
 </body>
 </html>
