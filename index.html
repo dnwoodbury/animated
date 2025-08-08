@@ -1,50 +1,203 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>David Woodbury</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Fractal Keys — David Woodbury</title>
   <style>
-    html, body {
-      margin: 0;
-      padding: 0;
-      height: 100%;
-      background: linear-gradient(-45deg, #ff4e50, #fc913a, #f9d423, #e65c00);
-      background-size: 400% 400%;
-      animation: gradientBG 15s ease infinite;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    :root { --bg: #0b0f14; }
+    html, body { height: 100%; margin: 0; background: var(--bg); }
+    canvas { display: block; width: 100vw; height: 100vh; }
+    .hud {
+      position: fixed; inset: 16px auto auto 16px; color: #cfd8e3;
+      font: 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      background: rgba(10,14,18,.55); backdrop-filter: blur(6px);
+      border: 1px solid rgba(255,255,255,.08); border-radius: 12px; padding: 12px 14px;
+      max-width: min(420px, 90vw)
     }
-
-    h1 {
-      font-size: 4rem;
-      background: linear-gradient(to right, #ffffff, #d0d0d0);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      animation: pulse 3s ease-in-out infinite;
+    .hud kbd {
+      font: 600 12px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      padding: 2px 6px; border-radius: 6px; background: rgba(255,255,255,.08);
+      border: 1px solid rgba(255,255,255,.12)
     }
-
-    @keyframes gradientBG {
-      0% { background-position: 0% 50%; }
-      50% { background-position: 100% 50%; }
-      100% { background-position: 0% 50%; }
+    .btn {
+      margin-top: 8px; display: inline-block; cursor: pointer;
+      padding: 8px 10px; border-radius: 10px; border: 1px solid rgba(255,255,255,.12);
+      background: rgba(255,255,255,.06); color: #e6edf7
     }
-
-    @keyframes pulse {
-      0%, 100% {
-        transform: scale(1);
-        opacity: 1;
-      }
-      50% {
-        transform: scale(1.1);
-        opacity: 0.8;
-      }
-    }
+    .btn:active { transform: translateY(1px) }
   </style>
 </head>
 <body>
-  <h1>You are welcome, Jason!</h1>
+  <canvas id="c"></canvas>
+  <div class="hud">
+    <div><strong>Fractal Keys</strong></div>
+    <div>Press any letter/number key to spawn a branching animation.</div>
+    <div>Left → light • Right → dark</div>
+    <div style="opacity:.8;margin-top:6px">Hints: <kbd>Q</kbd> light • <kbd>P</kbd> dark • <kbd>Z</kbd> light • <kbd>M</kbd> dark</div>
+    <div style="margin-top:8px">
+      <span class="btn" id="clearBtn">Clear</span>
+      <span class="btn" id="pauseBtn">Pause</span>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('c');
+    const ctx = canvas.getContext('2d');
+    let W, H, DPR;
+    function resize() {
+      DPR = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+      W = canvas.width  = Math.floor(innerWidth  * DPR);
+      H = canvas.height = Math.floor(innerHeight * DPR);
+      canvas.style.width  = innerWidth + 'px';
+      canvas.style.height = innerHeight + 'px';
+    }
+    addEventListener('resize', resize, { passive: true });
+    resize();
+
+    // Keyboard layout map → column index (0..max)
+    const rows = [
+      "`1234567890-=",
+      "qwertyuiop[]\\",
+      "asdfghjkl;'",
+      "zxcvbnm,./"
+    ];
+    const keyToIndex = (k) => {
+      if (!k) return { idx: 0, max: 1 };
+      const key = k.toLowerCase();
+      for (const row of rows) {
+        const i = row.indexOf(key);
+        if (i >= 0) return { idx: i, max: row.length - 1 };
+      }
+      // Fallback: use charCode as spread across 12 cols
+      const i = Math.max(0, Math.min(11, (key.charCodeAt(0) || 0) % 12));
+      return { idx: i, max: 11 };
+    };
+
+    // Map keyboard column → lightness (HSL). Left=85%, Right=22%
+    function lightnessForKey(key) {
+      const { idx, max } = keyToIndex(key);
+      const t = max ? idx / max : 0;              // 0 (left) → 1 (right)
+      return 85 - t * (85 - 22);
+    }
+
+    // Small seeded RNG so the same key gives similar vibes
+    function RNG(seed) {
+      let s = seed >>> 0;
+      return () => {
+        s ^= s << 13; s ^= s >>> 17; s ^= s << 5;
+        return ((s >>> 0) / 0xffffffff);
+      };
+    }
+
+    // Branching “fractal-ish” system
+    const bursts = [];
+    function spawnFractalFromKey(key) {
+      const now = performance.now();
+      const baseL = lightnessForKey(key);
+      const hue = (key.charCodeAt(0) * 11) % 360;   // vary by key
+      const seed = key.split('').reduce((a,c)=>a + c.charCodeAt(0), 0) ^ (now|0);
+      const rnd = RNG(seed);
+
+      // Start point around screen center, slight random offset
+      const start = { x: W * (0.45 + rnd()*0.1), y: H * (0.55 + rnd()*0.1) };
+      const branches = [{
+        x: start.x, y: start.y, angle: -Math.PI/2 + (rnd()-0.5)*0.4, len: H*0.12, depth: 0
+      }];
+
+      bursts.push({
+        hue, baseL, startTime: now, life: 3200, // ms
+        branches, rnd, drawn: false
+      });
+    }
+
+    // Draw with gentle trails
+    let paused = false;
+    function frame(t) {
+      if (!paused) {
+        // translucent fade to create motion trails
+        ctx.fillStyle = 'rgba(11,15,20,0.12)';
+        ctx.fillRect(0,0,W,H);
+
+        for (let i=bursts.length-1; i>=0; i--) {
+          const b = bursts[i];
+          const age = t - b.startTime;
+          if (age > b.life) { bursts.splice(i,1); continue; }
+          stepBurst(b, age);
+        }
+      }
+      requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+
+    function stepBurst(b, age) {
+      const speed = 1 + (age / b.life) * 1.2;
+      const newBranches = [];
+      for (const br of b.branches) {
+        // Draw segment
+        const x2 = br.x + Math.cos(br.angle) * br.len * 0.06 * speed;
+        const y2 = br.y + Math.sin(br.angle) * br.len * 0.06 * speed;
+
+        const depthT = Math.min(1, br.depth / 8);
+        const l = Math.max(18, b.baseL - depthT * 50); // darker as it branches
+        ctx.strokeStyle = `hsl(${b.hue + depthT*60}, 75%, ${l}%)`;
+        ctx.lineWidth = Math.max(1, (6 - br.depth) * DPR * 0.5);
+        ctx.beginPath(); ctx.moveTo(br.x, br.y); ctx.lineTo(x2, y2); ctx.stroke();
+
+        // Update current branch
+        br.x = x2; br.y = y2; br.len *= 0.985;
+
+        // Branching logic
+        const willBranch = br.len > 4 * DPR && b.rnd() < 0.28;
+        if (willBranch && br.depth < 8) {
+          const n = 2 + (b.rnd() < 0.2 ? 1 : 0); // 2 or 3 child branches
+          for (let k=0; k<n; k++) {
+            const ang = br.angle + (b.rnd()-0.5) * (Math.PI/3);
+            const child = { x: x2, y: y2, angle: ang, len: br.len * (0.72 + b.rnd()*0.2), depth: br.depth + 1 };
+            newBranches.push(child);
+          }
+        }
+      }
+      // Keep active branches (prune tiny ones)
+      b.branches = b.branches
+        .filter(br => br.len > 2 * DPR)
+        .concat(newBranches.slice(0, 100)); // cap growth per frame
+    }
+
+    // Input handling
+    addEventListener('keydown', (e) => {
+      if (e.repeat) return;
+      const k = e.key.length === 1 ? e.key : '';
+      // Only react to visible single characters (letters, numbers, symbols)
+      if (!k) return;
+
+      // A subtle flash around press position
+      spawnFractalFromKey(k);
+      pulseAtCursor();
+    });
+
+    function pulseAtCursor() {
+      // radial vignette pulse
+      const g = ctx.createRadialGradient(W/2, H/2, 0, W/2, H/2, Math.max(W,H)*0.6);
+      g.addColorStop(0, 'rgba(255,255,255,0.02)');
+      g.addColorStop(1, 'rgba(0,0,0,0.00)');
+      ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
+    }
+
+    // Buttons
+    document.getElementById('clearBtn').onclick = () => {
+      ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--bg');
+      ctx.fillRect(0,0,W,H);
+      bursts.length = 0;
+    };
+    document.getElementById('pauseBtn').onclick = (e) => {
+      paused = !paused;
+      e.target.textContent = paused ? 'Resume' : 'Pause';
+    };
+
+    // Start with a clean background
+    ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--bg');
+    ctx.fillRect(0,0,W,H);
+  </script>
 </body>
 </html>
