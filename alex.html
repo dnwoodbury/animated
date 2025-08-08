@@ -1,110 +1,85 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Alex Synth</title>
-  <style>
-    :root{--bg:#0f1115;--fg:#e5e7eb;--accent:#8b5cf6;--accent-2:#22d3ee}
-    *{box-sizing:border-box}
-    html,body{height:100%}
-    body{
-      margin:0;
-      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
-      background: radial-gradient(1200px 800px at 20% -10%, #1b1f2a 0, transparent 60%),
-                  radial-gradient(900px 600px at 120% 110%, #121826 0, transparent 60%),
-                  var(--bg);
-      color:var(--fg);
-      display:flex;flex-direction:column;align-items:center;justify-content:flex-start;
-      gap:24px; padding:24px;
-    }
-    header{max-width:900px; text-align:center}
-    h1{margin:0;font-weight:800;letter-spacing:.5px}
-    p{margin:.25rem 0 .5rem 0;color:#a8b1c0}
-
-    /* Big name that flashes in the middle */
-    #name{
-      position:fixed; inset:0; display:flex; align-items:center; justify-content:center;
-      pointer-events:none; user-select:none;
-      font-size:clamp(48px, 9vw, 160px); font-weight:900; letter-spacing:2px;
-      color:transparent; -webkit-text-stroke: 2px var(--accent);
-      text-shadow:0 0 20px rgba(139,92,246,.35), 0 0 60px rgba(34,211,238,.25);
-      opacity:0; transform:scale(.96);
-      transition: opacity .15s ease, transform .15s ease, -webkit-text-stroke-color .15s ease;
-      mix-blend-mode:screen;
-    }
-    #name.show{opacity:1; transform:scale(1)}
-
-    /* Keyboard */
-    .keyboard{display:grid; grid-template-columns:repeat(8, minmax(54px, 1fr)); gap:10px; width:min(800px, 95vw)}
-    .key{
-      position:relative; height:120px; border-radius:16px; border:1px solid #212636; background:#101522;
-      box-shadow: inset 0 1px 0 rgba(255,255,255,.04), 0 8px 24px rgba(0,0,0,.45);
-      display:flex;align-items:center;justify-content:center;
-      font-weight:700; color:#9aa4b5; cursor:pointer; user-select:none;
-      transition: transform .03s ease, background .12s ease, border-color .12s ease, box-shadow .12s ease;
-    }
-    .key small{position:absolute; bottom:8px; font-size:12px; opacity:.7}
-    .key:active{transform:translateY(2px)}
-    .key.active{background:linear-gradient(180deg, #1a2031, #0f1421); border-color:#2e3955; color:#e8edff;
-      box-shadow: inset 0 0 0 2px rgba(139,92,246,.35), 0 6px 16px rgba(139,92,246,.15)}
-
-    .legend{display:flex; gap:14px; align-items:center; justify-content:center; color:#94a3b8}
-    .dot{width:10px; height:10px; border-radius:999px; background:var(--accent)}
-
-    footer{opacity:.7; font-size:12px}
-    a{color:var(--accent-2)}
-  </style>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Alex Synth</title>
+<style>
+  body { margin:0; height:100%; background: black; color:white; display:flex; flex-direction:column; align-items:center; justify-content:center; font-family:sans-serif; transition: background 1s linear; }
+  #name { font-size:8vw; font-weight:bold; transition: color 0.3s; }
+  .keyboard { display:flex; flex-wrap:wrap; max-width:800px; margin-top:20px; }
+  .key { flex:1 0 60px; margin:5px; padding:20px; background:#222; border-radius:8px; text-align:center; cursor:pointer; user-select:none; color:white; }
+  .key.active { background:#555; }
+</style>
 </head>
 <body>
-  <header>
-    <h1>Alex Synth (Keyboard: A S D F G H J K)</h1>
-    <p>Press your keyboard or click the pads. Each key plays a different note. While a key is held, the name <strong>Alex</strong> flashes and then disappears when you release.</p>
-  </header>
-
-  <div id="name">ALEX</div>
-
-  <div class="keyboard" id="keyboard"></div>
-  <div class="legend"><span class="dot"></span> <span>Web Audio — polyphonic, ADSR envelope</span></div>
-
-  <footer>
-    Tip: Hold multiple keys for chords. Change waveform with <code>[1-4]</code>.
-  </footer>
-
-  <script>
+<div id="name"></div>
+<div class="keyboard" id="keyboard-low" aria-label="Lower octave (C3–B3)"></div>
+  <div class="keyboard" id="keyboard-high" aria-label="Upper range (C4–F5)"></div>
+<script>
     // --- Config ---
-    const KEY_TO_NOTE = {
-      'a': {label:'C4', freq: 261.63},
-      's': {label:'D4', freq: 293.66},
-      'd': {label:'E4', freq: 329.63},
-      'f': {label:'F4', freq: 349.23},
-      'g': {label:'G4', freq: 392.00},
-      'h': {label:'A4', freq: 440.00},
-      'j': {label:'B4', freq: 493.88},
-      'k': {label:'C5', freq: 523.25},
-    };
-
     const WAVE_TYPES = ['sine','square','sawtooth','triangle'];
     let currentWave = 0; // 0..3
 
     // Envelope settings (seconds)
     const ADSR = { attack: 0.01, decay: 0.08, sustain: 0.75, release: 0.15 };
 
+    // Color cycling state
+    let hue = 210; // starting hue
+    function updateTheme(h){
+      const h1 = h % 360;
+      const h2 = (h + 180) % 360;
+      document.documentElement.style.setProperty('--accent', `hsl(${h1} 90% 70%)`);
+      document.documentElement.style.setProperty('--accent-2', `hsl(${h2} 90% 62%)`);
+      // Refresh background with related hues
+      document.body.style.background =
+        `radial-gradient(1200px 800px at 20% -10%, hsl(${(h1+220)%360} 35% 16%) 0, transparent 60%),`+
+        `radial-gradient(900px 600px at 120% 110%, hsl(${(h1+260)%360} 32% 12%) 0, transparent 60%),`+
+        `var(--bg)`;
+    }
+
+    // Utility: build white-key diatonic set starting at given MIDI C
+    const WHITE_OFFSETS = [0,2,4,5,7,9,11];
+    function midiToFreq(m){ return 440 * Math.pow(2, (m - 69) / 12); }
+    const NOTE_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+    function midiToLabel(m){ const n = m % 12, o = Math.floor(m/12) - 1; return `${NOTE_NAMES[n]}${o}`; }
+
+    // Build mappings
+    const lowerKeys = ['z','x','c','v','b','n','m']; // C3..B3 (white keys)
+    const upperKeys = ['a','s','d','f','g','h','j','k','l',';','\'']; // C4..F5 (white keys, extended)
+
+    const KEY_TO_NOTE = {};
+    // Lower octave base C3 = MIDI 48
+    lowerKeys.forEach((k, i) => {
+      const midi = 48 + WHITE_OFFSETS[i];
+      KEY_TO_NOTE[k] = { label: midiToLabel(midi), freq: +(midiToFreq(midi).toFixed(2)) };
+    });
+    // Upper range base C4 = MIDI 60, extended diatonic degrees [0,2,4,5,7,9,11,12,14,16,17]
+    const upperOffsets = [0,2,4,5,7,9,11,12,14,16,17];
+    upperKeys.forEach((k, i) => {
+      const midi = 60 + upperOffsets[i];
+      KEY_TO_NOTE[k] = { label: midiToLabel(midi), freq: +(midiToFreq(midi).toFixed(2)) };
+    });
+
     // State
     let audioCtx = null;
     const voices = new Map(); // key -> {osc, gain}
 
     const nameEl = document.getElementById('name');
-    const keyboardEl = document.getElementById('keyboard');
+    const lowEl = document.getElementById('keyboard-low');
+    const highEl = document.getElementById('keyboard-high');
 
-    // Build clickable pads
-    Object.entries(KEY_TO_NOTE).forEach(([key, {label}]) => {
+    // Build clickable pads (by rows)
+    function makePad(container, key){
       const div = document.createElement('div');
       div.className = 'key';
       div.dataset.key = key;
-      div.innerHTML = `<div style="font-size:22px">${key.toUpperCase()}</div><small>${label}</small>`;
-      keyboardEl.appendChild(div);
-    });
+      div.innerHTML = `<div style=\"font-size:22px\">${key.toUpperCase()}</div><small>${KEY_TO_NOTE[key].label}</small>`;
+      container.appendChild(div);
+      bindPadEvents(div);
+    }
+    lowerKeys.forEach(k => makePad(lowEl, k));
+    upperKeys.forEach(k => makePad(highEl, k));
 
     function ensureCtx() {
       if (!audioCtx) {
@@ -113,10 +88,14 @@
       if (audioCtx.state === 'suspended') audioCtx.resume();
     }
 
+    function pulseNameColor(){
+      nameEl.style.webkitTextStrokeColor = `hsl(${hue % 360} 90% 70%)`;
+      nameEl.style.textShadow = `0 0 20px hsl(${hue % 360} 90% 60% / .35), 0 0 60px hsl(${(hue+180)%360} 90% 60% / .25)`;
+    }
+
     function showName() {
       nameEl.classList.add('show');
-      // Subtle stroke color pulse
-      nameEl.style.webkitTextStrokeColor = Math.random() > .5 ? 'var(--accent)' : 'var(--accent-2)';
+      pulseNameColor();
     }
     function hideNameIfNoKeys() {
       if (voices.size === 0) nameEl.classList.remove('show');
@@ -126,6 +105,11 @@
       const info = KEY_TO_NOTE[key];
       if (!info || voices.has(key)) return; // ignore unknown or held repeats
       ensureCtx();
+
+      // Cycle theme for every new note
+      hue = (hue + 22) % 360; // step through the wheel
+      updateTheme(hue);
+      pulseNameColor();
 
       // Nodes
       const osc = audioCtx.createOscillator();
@@ -144,7 +128,7 @@
 
       voices.set(key, {osc, gain});
 
-      document.querySelector(`.key[data-key="${key}"]`)?.classList.add('active');
+      document.querySelector(`.key[data-key=\"${CSS.escape(key)}\"]`)?.classList.add('active');
       showName();
     }
 
@@ -157,12 +141,11 @@
       gain.gain.setTargetAtTime(0.0001, now, ADSR.release / 3);
       setTimeout(() => {
         try { osc.stop(); } catch {}
-        osc.disconnect();
-        gain.disconnect();
+        try { osc.disconnect(); gain.disconnect(); } catch {}
       }, Math.max(ADSR.release * 1000, 80));
       voices.delete(key);
 
-      document.querySelector(`.key[data-key="${key}"]`)?.classList.remove('active');
+      document.querySelector(`.key[data-key=\"${CSS.escape(key)}\"]`)?.classList.remove('active');
       hideNameIfNoKeys();
     }
 
@@ -176,7 +159,7 @@
       // Waveform switchers: 1..4
       if (['1','2','3','4'].includes(k)) {
         currentWave = parseInt(k,10) - 1;
-        // Visually nudge the name to indicate change
+        // Visual nudge
         nameEl.style.transform = 'scale(1.03)';
         setTimeout(()=> nameEl.style.transform = '', 120);
       }
@@ -199,7 +182,6 @@
       window.addEventListener('mouseup', up);
       window.addEventListener('touchend', up, {passive:false});
     }
-    document.querySelectorAll('.key').forEach(bindPadEvents);
 
     // Handle page visibility (stop stuck notes if tab loses focus)
     document.addEventListener('visibilitychange', () => {
@@ -207,6 +189,9 @@
         Array.from(voices.keys()).forEach(stopNote);
       }
     });
+
+    // Initialize theme once
+    updateTheme(hue);
   </script>
 </body>
 </html>
