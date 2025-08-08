@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>360 Wrap Scroller — 5360×1080</title>
+<style>
+  :root { --wall-w: 5360; --wall-h: 1080; }
+  html, body { height:100%; margin:0; background:#000; color:#cfd8e3; font:14px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+  /* The render canvas is 5360×1080 internally; we scale it to the window for preview */
+  #view { display:block; width:100vw; height:auto; max-height:100vh; margin:0 auto; background:#000; }
+  .hud {
+    position: fixed; left: 12px; top: 12px; background: rgba(10,10,12,.55);
+    border:1px solid rgba(255,255,255,.12); border-radius:12px; padding:10px 12px; backdrop-filter: blur(6px);
+  }
+  .hud kbd{font:600 12px/1 ui-monospace,Menlo,Consolas,monospace; padding:2px 6px; border-radius:6px;
+    background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.12)}
+  .row{display:flex; gap:10px; flex-wrap:wrap}
+  .drop {
+    position: fixed; inset:0; display:none; align-items:center; justify-content:center;
+    background:rgba(255,255,255,.08); color:#fff; font-size:22px; z-index:5
+  }
+</style>
+</head>
+<body>
+<canvas id="view" width="5360" height="1080"></canvas>
+<div class="hud" id="hud">
+  <div><strong>360 Wrap Scroller</strong> — internal <span id="res">5360×1080</span></div>
+  <div>Images move <em>right → left</em> and wrap at edges for a 360 projection.</div>
+  <div class="row" style="margin-top:6px">
+    <div><kbd>Space</kbd> pause/play</div>
+    <div><kbd>←</kbd>/<kbd>→</kbd> speed</div>
+    <div><kbd>F</kbd> fullscreen</div>
+    <div>Drop images to add</div>
+  </div>
+  <div style="margin-top:6px;opacity:.9" id="stats"></div>
+</div>
+<div class="drop" id="drop">Drop images to add</div>
+
+<script>
+(() => {
+  const WALL_W = 5360, WALL_H = 1080; // target wall resolution
+  const canvas = document.getElementById('view');
+  const ctx = canvas.getContext('2d', { alpha:false });
+  const stats = document.getElementById('stats');
+  const dropEl = document.getElementById('drop');
+
+  // --- CONFIG ---
+  let pxPerSecond = 120;           // scroll speed (positive = right→left)
+  const rowY = WALL_H/2;           // vertical center line to place images
+  const gap = 40;                  // pixels between images in the strip
+  const maxRowHeight = WALL_H * 0.9; // clamp tall images
+  const bgColor = '#000';          // background
+
+  // Example starter images (replace with your own)
+  // Use wide assets for best visual continuity on a 360 wrap.
+  const images = [
+    "https://picsum.photos/seed/a/1800/700",
+    "https://picsum.photos/seed/b/1400/700",
+    "https://picsum.photos/seed/c/2000/700",
+    "https://picsum.photos/seed/d/1600/700"
+  ];
+
+  // Runtime state
+  let strip = [];          // [{img, w,h, x0}] base strip layout (one cycle)
+  let stripLen = 0;        // total length of one cycle (sum of widths + gaps)
+  let offset = 0;          // scroll offset in pixels
+  let playing = true;
+  let lastT = performance.now();
+
+  // ---- Helpers ----
+  function loadImage(url) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.crossOrigin = "anonymous"; // allow cross-origin for placeholders
+      img.onload = () => resolve(img);
+      img.onerror = reject;
+      img.src = url;
+    });
+  }
+
+  async function buildStripFromURLs(urls) {
+    const loaded = [];
+    for (const u of urls) {
+      try { loaded.push(await loadImage(u)); } catch(e) { console.warn("Failed to load", u); }
+    }
+    if (!loaded.length) return;
+
+    // scale to fit row height (preserve aspect)
+    strip = [];
+    let x = 0;
+    for (const img of loaded) {
+      const scale = Math.min(1, maxRowHeight / img.height);
+      const w = Math.round(img.width * scale);
+      const h = Math.round(img.height * scale);
+      strip.push({ img, w, h, x0: x });
+      x += w + gap;
+    }
+    stripLen = Math.max(x, 1);
+    // If the strip is shorter than the wall, duplicate until >= wall width * 2 for smooth cover
+    while (stripLen < WALL_W * 2) {
+      const clone = strip.map(s => ({...s, x0: s.x0 + stripLen}));
+      strip = strip.concat(clone);
+      stripLen *= 2;
+    }
+  }
+
+  function draw(t) {
+    const dt = Math.min(0.05, (t - lastT) / 1000);
+    lastT = t;
+
+    if (playing) offset = (offset + pxPerSecond * dt) % stripLen;
+
+    // Clear
+    ctx.fillStyle = bgColor;
+    ctx.fillRect(0,0,WALL_W,WALL_H);
+
+    if (strip.length) {
+      // Draw enough cycles to cover the wall, wrapping seamlessly
+      // We draw items whose (x0 - offset) falls within [-maxW, WALL_W + maxW]
+      let maxW = 0; for (const s of strip) maxW = Math.max(maxW, s.w);
+      const startX = -maxW;
+      const endX = WALL_W + maxW;
+
+      for (const s of strip) {
+        // Compute wrapped position
+        // base position in current loop:
+        let x = s.x0 - offset;
+        // wrap to visible range by shifting multiples of stripLen
+        if (x < startX) x += Math.ceil((startX - x) / stripLen) * stripLen;
+        if (x > endX)  x -= Math.ceil((x - endX) / stripLen) * stripLen;
+
+        // Draw possibly multiple copies (x +/- k*stripLen) to cover both edges
+        for (let k=-1; k<=1; k++) {
+          const dx = x + k * stripLen;
+          if (dx + s.w < 0 || dx > WALL_W) continue;
+          const y = Math.round(rowY - s.h/2);
+          ctx.drawImage(s.img, Math.round(dx), y, s.w, s.h);
+        }
+      }
+    }
+
+    // HUD stats
+    stats.textContent = `speed: ${pxPerSecond.toFixed(1)} px/s  |  images in loop: ${strip.length}  |  loop length: ${stripLen}px  |  offset: ${offset.toFixed(1)}px`;
+
+    requestAnimationFrame(draw);
+  }
+
+  // Input
+  addEventListener('keydown', (e) => {
+    if (e.key === ' ') { playing = !playing; e.preventDefault(); }
+    if (e.key === 'ArrowRight') pxPerSecond = Math.min(2000, pxPerSecond + 20);
+    if (e.key === 'ArrowLeft')  pxPerSecond = Math.max(5, pxPerSecond - 20);
+    if (e.key.toLowerCase() === 'f') toggleFullscreen();
+  });
+
+  // Drag & drop to add images
+  ;['dragenter','dragover'].forEach(ev => addEventListener(ev, (e)=>{ e.preventDefault(); dropEl.style.display='flex'; }));
+  ;['dragleave','drop'].forEach(ev => addEventListener(ev, (e)=>{ e.preventDefault(); dropEl.style.display='none'; }));
+
+  addEventListener('drop', async (e) => {
+    e.preventDefault();
+    const files = [...(e.dataTransfer?.files||[])].filter(f => /^image\//.test(f.type));
+    if (!files.length) return;
+    const urls = await Promise.all(files.map(f => new Promise(res => {
+      const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(f);
+    })));
+    await buildStripFromURLs(urls);
+  });
+
+  function toggleFullscreen() {
+    const el = document.documentElement;
+    if (!document.fullscreenElement) el.requestFullscreen?.();
+    else document.exitFullscreen?.();
+  }
+
+  // Kick off
+  (async () => {
+    await buildStripFromURLs(images);
+    requestAnimationFrame(draw);
+  })();
+})();
+</script>
+</body>
+</html>
