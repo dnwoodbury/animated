@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Fractal Keys — David Woodbury</title>
+  <title>Fractal Keys — with Sound</title>
   <style>
     :root { --bg: #0b0f14; }
     html, body { height: 100%; margin: 0; background: var(--bg); }
@@ -13,7 +13,7 @@
       font: 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
       background: rgba(10,14,18,.55); backdrop-filter: blur(6px);
       border: 1px solid rgba(255,255,255,.08); border-radius: 12px; padding: 12px 14px;
-      max-width: min(420px, 90vw)
+      max-width: min(440px, 90vw)
     }
     .hud kbd {
       font: 600 12px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -23,25 +23,30 @@
     .btn {
       margin-top: 8px; display: inline-block; cursor: pointer;
       padding: 8px 10px; border-radius: 10px; border: 1px solid rgba(255,255,255,.12);
-      background: rgba(255,255,255,.06); color: #e6edf7
+      background: rgba(255,255,255,.06); color: #e6edf7; user-select:none;
     }
     .btn:active { transform: translateY(1px) }
+    .row { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px }
   </style>
 </head>
 <body>
   <canvas id="c"></canvas>
   <div class="hud">
-    <div><strong>Fractal Keys</strong></div>
-    <div>Press any letter/number key to spawn a branching animation.</div>
-    <div>Left → light • Right → dark</div>
-    <div style="opacity:.8;margin-top:6px">Hints: <kbd>Q</kbd> light • <kbd>P</kbd> dark • <kbd>Z</kbd> light • <kbd>M</kbd> dark</div>
-    <div style="margin-top:8px">
+    <div><strong>Fractal Keys (with Sound)</strong></div>
+    <div>Press any letter/number key to spawn a branching animation + a short percussive tone.</div>
+    <div>Left → light & bright • Right → dark & low</div>
+    <div style="opacity:.8;margin-top:6px">Try: <kbd>Q</kbd> (bright) • <kbd>P</kbd> (dark) • <kbd>Z</kbd> (bright) • <kbd>M</kbd> (dark)</div>
+    <div class="row">
       <span class="btn" id="clearBtn">Clear</span>
       <span class="btn" id="pauseBtn">Pause</span>
+      <span class="btn" id="muteBtn">Unmuted</span>
     </div>
   </div>
 
   <script>
+    /* =========================
+       CANVAS / FRACTAL VISUALS
+       ========================= */
     const canvas = document.getElementById('c');
     const ctx = canvas.getContext('2d');
     let W, H, DPR;
@@ -55,7 +60,6 @@
     addEventListener('resize', resize, { passive: true });
     resize();
 
-    // Keyboard layout map → column index (0..max)
     const rows = [
       "`1234567890-=",
       "qwertyuiop[]\\",
@@ -69,19 +73,14 @@
         const i = row.indexOf(key);
         if (i >= 0) return { idx: i, max: row.length - 1 };
       }
-      // Fallback: use charCode as spread across 12 cols
       const i = Math.max(0, Math.min(11, (key.charCodeAt(0) || 0) % 12));
       return { idx: i, max: 11 };
     };
-
-    // Map keyboard column → lightness (HSL). Left=85%, Right=22%
     function lightnessForKey(key) {
       const { idx, max } = keyToIndex(key);
       const t = max ? idx / max : 0;              // 0 (left) → 1 (right)
       return 85 - t * (85 - 22);
     }
-
-    // Small seeded RNG so the same key gives similar vibes
     function RNG(seed) {
       let s = seed >>> 0;
       return () => {
@@ -89,33 +88,27 @@
         return ((s >>> 0) / 0xffffffff);
       };
     }
-
-    // Branching “fractal-ish” system
     const bursts = [];
     function spawnFractalFromKey(key) {
       const now = performance.now();
       const baseL = lightnessForKey(key);
-      const hue = (key.charCodeAt(0) * 11) % 360;   // vary by key
+      const hue = (key.charCodeAt(0) * 11) % 360;
       const seed = key.split('').reduce((a,c)=>a + c.charCodeAt(0), 0) ^ (now|0);
       const rnd = RNG(seed);
 
-      // Start point around screen center, slight random offset
       const start = { x: W * (0.45 + rnd()*0.1), y: H * (0.55 + rnd()*0.1) };
       const branches = [{
         x: start.x, y: start.y, angle: -Math.PI/2 + (rnd()-0.5)*0.4, len: H*0.12, depth: 0
       }];
 
       bursts.push({
-        hue, baseL, startTime: now, life: 3200, // ms
-        branches, rnd, drawn: false
+        hue, baseL, startTime: now, life: 3200,
+        branches, rnd
       });
     }
-
-    // Draw with gentle trails
     let paused = false;
     function frame(t) {
       if (!paused) {
-        // translucent fade to create motion trails
         ctx.fillStyle = 'rgba(11,15,20,0.12)';
         ctx.fillRect(0,0,W,H);
 
@@ -134,57 +127,37 @@
       const speed = 1 + (age / b.life) * 1.2;
       const newBranches = [];
       for (const br of b.branches) {
-        // Draw segment
         const x2 = br.x + Math.cos(br.angle) * br.len * 0.06 * speed;
         const y2 = br.y + Math.sin(br.angle) * br.len * 0.06 * speed;
 
         const depthT = Math.min(1, br.depth / 8);
-        const l = Math.max(18, b.baseL - depthT * 50); // darker as it branches
+        const l = Math.max(18, b.baseL - depthT * 50);
         ctx.strokeStyle = `hsl(${b.hue + depthT*60}, 75%, ${l}%)`;
         ctx.lineWidth = Math.max(1, (6 - br.depth) * DPR * 0.5);
         ctx.beginPath(); ctx.moveTo(br.x, br.y); ctx.lineTo(x2, y2); ctx.stroke();
 
-        // Update current branch
         br.x = x2; br.y = y2; br.len *= 0.985;
 
-        // Branching logic
-        const willBranch = br.len > 4 * DPR && b.rnd() < 0.28;
+        const willBranch = br.len > 4 * DPR && Math.random() < 0.28;
         if (willBranch && br.depth < 8) {
-          const n = 2 + (b.rnd() < 0.2 ? 1 : 0); // 2 or 3 child branches
+          const n = 2 + (Math.random() < 0.2 ? 1 : 0);
           for (let k=0; k<n; k++) {
-            const ang = br.angle + (b.rnd()-0.5) * (Math.PI/3);
-            const child = { x: x2, y: y2, angle: ang, len: br.len * (0.72 + b.rnd()*0.2), depth: br.depth + 1 };
+            const ang = br.angle + (Math.random()-0.5) * (Math.PI/3);
+            const child = { x: x2, y: y2, angle: ang, len: br.len * (0.72 + Math.random()*0.2), depth: br.depth + 1 };
             newBranches.push(child);
           }
         }
       }
-      // Keep active branches (prune tiny ones)
       b.branches = b.branches
         .filter(br => br.len > 2 * DPR)
-        .concat(newBranches.slice(0, 100)); // cap growth per frame
+        .concat(newBranches.slice(0, 100));
     }
-
-    // Input handling
-    addEventListener('keydown', (e) => {
-      if (e.repeat) return;
-      const k = e.key.length === 1 ? e.key : '';
-      // Only react to visible single characters (letters, numbers, symbols)
-      if (!k) return;
-
-      // A subtle flash around press position
-      spawnFractalFromKey(k);
-      pulseAtCursor();
-    });
-
-    function pulseAtCursor() {
-      // radial vignette pulse
+    function pulseAtCenter() {
       const g = ctx.createRadialGradient(W/2, H/2, 0, W/2, H/2, Math.max(W,H)*0.6);
       g.addColorStop(0, 'rgba(255,255,255,0.02)');
       g.addColorStop(1, 'rgba(0,0,0,0.00)');
       ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
     }
-
-    // Buttons
     document.getElementById('clearBtn').onclick = () => {
       ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--bg');
       ctx.fillRect(0,0,W,H);
@@ -194,10 +167,125 @@
       paused = !paused;
       e.target.textContent = paused ? 'Resume' : 'Pause';
     };
-
-    // Start with a clean background
     ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--bg');
     ctx.fillRect(0,0,W,H);
+
+    /* =========================
+       AUDIO (Web Audio API)
+       ========================= */
+    let audioCtx = null;
+    let master = null;
+    let compressor = null;
+    let muted = false;
+
+    const muteBtn = document.getElementById('muteBtn');
+    muteBtn.addEventListener('click', () => {
+      muted = !muted;
+      if (master) master.gain.value = muted ? 0 : 0.9;
+      muteBtn.textContent = muted ? 'Muted' : 'Unmuted';
+    });
+
+    function ensureAudio() {
+      if (audioCtx) return;
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      master = audioCtx.createGain();
+      master.gain.value = 0.9;
+
+      compressor = audioCtx.createDynamicsCompressor();
+      compressor.threshold.setValueAtTime(-24, audioCtx.currentTime);
+      compressor.knee.setValueAtTime(30, audioCtx.currentTime);
+      compressor.ratio.setValueAtTime(6, audioCtx.currentTime);
+      compressor.attack.setValueAtTime(0.003, audioCtx.currentTime);
+      compressor.release.setValueAtTime(0.25, audioCtx.currentTime);
+
+      master.connect(compressor);
+      compressor.connect(audioCtx.destination);
+    }
+
+    // Map keyboard column → timbre/frequency: left bright/high, right dark/low
+    function soundForKey(key) {
+      const { idx, max } = keyToIndex(key);
+      const t = max ? idx / max : 0; // 0..1 left→right
+      // Frequency range: ~880 Hz (left) down to ~110 Hz (right)
+      const freq = 880 - t * (880 - 110);
+      // Filter cutoff: brighter left, darker right
+      const cutoff = 12000 - t * 10000; // 12k → 2k
+      return { freq, cutoff, t };
+    }
+
+    function playPercussiveTone(key) {
+      if (!audioCtx) ensureAudio();
+      if (!audioCtx) return;
+      const now = audioCtx.currentTime;
+      const { freq, cutoff, t } = soundForKey(key);
+
+      // Tone oscillator (short blip)
+      const osc = audioCtx.createOscillator();
+      // Slightly detune right-side keys for darker character
+      osc.type = t < 0.5 ? 'triangle' : 'sawtooth';
+      osc.frequency.setValueAtTime(freq, now);
+
+      // Click/noise burst for attack (for a drum-ish transient)
+      const noise = audioCtx.createBufferSource();
+      const buffer = audioCtx.createBuffer(1, audioCtx.sampleRate * 0.1, audioCtx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i=0; i<data.length; i++) data[i] = (Math.random()*2-1) * Math.exp(-i / (data.length*0.25));
+      noise.buffer = buffer;
+
+      // Filter to control brightness
+      const filter = audioCtx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(cutoff, now);
+      filter.Q.setValueAtTime(0.7 + t*0.6, now);
+
+      // Envelope
+      const env = audioCtx.createGain();
+      const env2 = audioCtx.createGain(); // for noise
+      env.gain.setValueAtTime(0, now);
+      env.gain.linearRampToValueAtTime(0.9, now + 0.005);
+      env.gain.exponentialRampToValueAtTime(0.0008, now + 0.35 + t*0.15);
+
+      env2.gain.setValueAtTime(0.6, now);
+      env2.gain.exponentialRampToValueAtTime(0.0008, now + 0.08 + t*0.05);
+
+      // Light touch of stereo width via slight delay
+      const delay = audioCtx.createDelay(0.02);
+      delay.delayTime.setValueAtTime(0.004 + t*0.004, now);
+
+      // Wire it up
+      osc.connect(filter);
+      filter.connect(env);
+      env.connect(delay);
+      delay.connect(master);
+
+      noise.connect(env2);
+      env2.connect(master);
+
+      // Start/stop
+      osc.start(now);
+      noise.start(now);
+      osc.stop(now + 0.6 + t*0.2);
+      noise.stop(now + 0.12 + t*0.05);
+    }
+
+    /* =========================
+       INPUT / HOOK-UP
+       ========================= */
+    addEventListener('keydown', async (e) => {
+      if (e.repeat) return;
+      const k = e.key.length === 1 ? e.key : '';
+      if (!k) return;
+
+      // Resume audio context on first interaction if suspended
+      ensureAudio();
+      if (audioCtx && audioCtx.state === 'suspended') {
+        try { await audioCtx.resume(); } catch {}
+      }
+
+      spawnFractalFromKey(k);
+      pulseAtCenter();
+      if (!muted) playPercussiveTone(k);
+    });
   </script>
 </body>
 </html>
