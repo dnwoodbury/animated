@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Fractal Keys — with Sound</title>
+  <title>Fractal Keys — Reverb + Mod</title>
   <style>
     :root { --bg: #0b0f14; }
     html, body { height: 100%; margin: 0; background: var(--bg); }
@@ -13,34 +13,33 @@
       font: 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
       background: rgba(10,14,18,.55); backdrop-filter: blur(6px);
       border: 1px solid rgba(255,255,255,.08); border-radius: 12px; padding: 12px 14px;
-      max-width: min(440px, 90vw)
+      max-width: min(520px, 92vw)
     }
-    .hud kbd {
-      font: 600 12px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      padding: 2px 6px; border-radius: 6px; background: rgba(255,255,255,.08);
-      border: 1px solid rgba(255,255,255,.12)
-    }
-    .btn {
-      margin-top: 8px; display: inline-block; cursor: pointer;
-      padding: 8px 10px; border-radius: 10px; border: 1px solid rgba(255,255,255,.12);
-      background: rgba(255,255,255,.06); color: #e6edf7; user-select:none;
-    }
-    .btn:active { transform: translateY(1px) }
     .row { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px }
+    .btn {
+      display:inline-block; padding:8px 10px; border-radius:10px; user-select:none; cursor:pointer;
+      border:1px solid rgba(255,255,255,.12); background:rgba(255,255,255,.06); color:#e6edf7;
+    }
+    kbd { font:600 12px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      padding:2px 6px; border-radius:6px; background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.12) }
   </style>
 </head>
 <body>
   <canvas id="c"></canvas>
-  <div class="hud">
-    <div><strong>Fractal Keys (with Sound)</strong></div>
-    <div>Press any letter/number key to spawn a branching animation + a short percussive tone.</div>
-    <div>Left → light & bright • Right → dark & low</div>
-    <div style="opacity:.8;margin-top:6px">Try: <kbd>Q</kbd> (bright) • <kbd>P</kbd> (dark) • <kbd>Z</kbd> (bright) • <kbd>M</kbd> (dark)</div>
-    <div class="row">
+  <div class="hud" id="hud">
+    <div><strong>Fractal Keys — Reverb + Modulation</strong></div>
+    <div>Press letters/numbers to spawn fractals + tones. Left keys = lighter/brighter; right = darker/lower.</div>
+    <div style="margin-top:6px">
+      Controls:
+      <div><kbd>←/→</kbd> Mod depth • <kbd>Shift</kbd>+<kbd>←/→</kbd> LFO rate • <kbd>↑/↓</kbd> Reverb mix</div>
+      <div><kbd>M</kbd> Mute • <kbd>P</kbd> Pause • <kbd>C</kbd> Clear</div>
+    </div>
+    <div class="row" style="margin-top:8px">
       <span class="btn" id="clearBtn">Clear</span>
       <span class="btn" id="pauseBtn">Pause</span>
       <span class="btn" id="muteBtn">Unmuted</span>
     </div>
+    <div id="readout" style="margin-top:8px;opacity:.9"></div>
   </div>
 
   <script>
@@ -78,7 +77,7 @@
     };
     function lightnessForKey(key) {
       const { idx, max } = keyToIndex(key);
-      const t = max ? idx / max : 0;              // 0 (left) → 1 (right)
+      const t = max ? idx / max : 0; // 0..1 left→right
       return 85 - t * (85 - 22);
     }
     function RNG(seed) {
@@ -95,23 +94,15 @@
       const hue = (key.charCodeAt(0) * 11) % 360;
       const seed = key.split('').reduce((a,c)=>a + c.charCodeAt(0), 0) ^ (now|0);
       const rnd = RNG(seed);
-
       const start = { x: W * (0.45 + rnd()*0.1), y: H * (0.55 + rnd()*0.1) };
-      const branches = [{
-        x: start.x, y: start.y, angle: -Math.PI/2 + (rnd()-0.5)*0.4, len: H*0.12, depth: 0
-      }];
-
-      bursts.push({
-        hue, baseL, startTime: now, life: 3200,
-        branches, rnd
-      });
+      const branches = [{ x:start.x, y:start.y, angle:-Math.PI/2 + (rnd()-0.5)*0.4, len:H*0.12, depth:0 }];
+      bursts.push({ hue, baseL, startTime: now, life: 3200, branches, rnd });
     }
     let paused = false;
     function frame(t) {
       if (!paused) {
         ctx.fillStyle = 'rgba(11,15,20,0.12)';
         ctx.fillRect(0,0,W,H);
-
         for (let i=bursts.length-1; i>=0; i--) {
           const b = bursts[i];
           const age = t - b.startTime;
@@ -122,61 +113,59 @@
       requestAnimationFrame(frame);
     }
     requestAnimationFrame(frame);
-
     function stepBurst(b, age) {
       const speed = 1 + (age / b.life) * 1.2;
       const newBranches = [];
       for (const br of b.branches) {
         const x2 = br.x + Math.cos(br.angle) * br.len * 0.06 * speed;
         const y2 = br.y + Math.sin(br.angle) * br.len * 0.06 * speed;
-
         const depthT = Math.min(1, br.depth / 8);
         const l = Math.max(18, b.baseL - depthT * 50);
         ctx.strokeStyle = `hsl(${b.hue + depthT*60}, 75%, ${l}%)`;
         ctx.lineWidth = Math.max(1, (6 - br.depth) * DPR * 0.5);
         ctx.beginPath(); ctx.moveTo(br.x, br.y); ctx.lineTo(x2, y2); ctx.stroke();
-
         br.x = x2; br.y = y2; br.len *= 0.985;
-
         const willBranch = br.len > 4 * DPR && Math.random() < 0.28;
         if (willBranch && br.depth < 8) {
           const n = 2 + (Math.random() < 0.2 ? 1 : 0);
           for (let k=0; k<n; k++) {
             const ang = br.angle + (Math.random()-0.5) * (Math.PI/3);
-            const child = { x: x2, y: y2, angle: ang, len: br.len * (0.72 + Math.random()*0.2), depth: br.depth + 1 };
-            newBranches.push(child);
+            newBranches.push({ x:x2, y:y2, angle:ang, len:br.len*(0.72+Math.random()*0.2), depth:br.depth+1 });
           }
         }
       }
-      b.branches = b.branches
-        .filter(br => br.len > 2 * DPR)
-        .concat(newBranches.slice(0, 100));
+      b.branches = b.branches.filter(br => br.len > 2*DPR).concat(newBranches.slice(0, 100));
     }
-    function pulseAtCenter() {
-      const g = ctx.createRadialGradient(W/2, H/2, 0, W/2, H/2, Math.max(W,H)*0.6);
-      g.addColorStop(0, 'rgba(255,255,255,0.02)');
-      g.addColorStop(1, 'rgba(0,0,0,0.00)');
-      ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
-    }
-    document.getElementById('clearBtn').onclick = () => {
+    function fillBG() {
       ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--bg');
       ctx.fillRect(0,0,W,H);
-      bursts.length = 0;
-    };
-    document.getElementById('pauseBtn').onclick = (e) => {
-      paused = !paused;
-      e.target.textContent = paused ? 'Resume' : 'Pause';
-    };
-    ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--bg');
-    ctx.fillRect(0,0,W,H);
+    }
+    fillBG();
 
     /* =========================
-       AUDIO (Web Audio API)
+       AUDIO: REVERB + MODULATION
        ========================= */
-    let audioCtx = null;
-    let master = null;
-    let compressor = null;
+    let audioCtx, master, compressor, convolver, wetGain, dryGain, lfoOsc, lfoGain;
     let muted = false;
+
+    // User-tweakable params (and ranges)
+    const params = {
+      lfoRate: 3.0,      // Hz
+      lfoRateMin: 0.1, lfoRateMax: 12,
+      modDepthFilter: 400,  // Hz deviation applied to filter cutoff
+      modDepthFilterMin: 0, modDepthFilterMax: 2000,
+      modDepthPitch: 4,  // Hz deviation on osc frequency
+      modDepthPitchMin: 0, modDepthPitchMax: 20,
+      reverbMix: 0.25,   // 0..1 (wet)
+      reverbDecay: 2.2,  // seconds (impulse length/decay)
+    };
+
+    const readout = document.getElementById('readout');
+    function updateHUD() {
+      readout.textContent =
+        `LFO rate: ${params.lfoRate.toFixed(2)} Hz  |  Mod depth (filter): ${Math.round(params.modDepthFilter)} Hz  |  Mod depth (pitch): ${params.modDepthPitch.toFixed(1)} Hz  |  Reverb mix: ${(params.reverbMix*100|0)}%`;
+    }
+    updateHUD();
 
     const muteBtn = document.getElementById('muteBtn');
     muteBtn.addEventListener('click', () => {
@@ -188,9 +177,9 @@
     function ensureAudio() {
       if (audioCtx) return;
       audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      master = audioCtx.createGain();
-      master.gain.value = 0.9;
 
+      // Master chain
+      master = audioCtx.createGain(); master.gain.value = 0.9;
       compressor = audioCtx.createDynamicsCompressor();
       compressor.threshold.setValueAtTime(-24, audioCtx.currentTime);
       compressor.knee.setValueAtTime(30, audioCtx.currentTime);
@@ -198,68 +187,127 @@
       compressor.attack.setValueAtTime(0.003, audioCtx.currentTime);
       compressor.release.setValueAtTime(0.25, audioCtx.currentTime);
 
-      master.connect(compressor);
+      // Reverb (Convolver) with generated impulse
+      convolver = audioCtx.createConvolver();
+      convolver.buffer = makeImpulseResponse(audioCtx, params.reverbDecay, 0.3);
+      wetGain = audioCtx.createGain(); dryGain = audioCtx.createGain();
+      setReverbMix(params.reverbMix);
+
+      // LFO
+      lfoOsc = audioCtx.createOscillator();
+      lfoOsc.type = 'sine';
+      lfoOsc.frequency.value = params.lfoRate;
+      lfoGain = audioCtx.createGain(); // global LFO amplitude; per-voice sends will scale this further
+      lfoGain.gain.value = 1; // keep at 1; voice sends control actual depth
+      lfoOsc.connect(lfoGain);
+      lfoOsc.start();
+
+      // Wire master
+      dryGain.connect(compressor);
+      wetGain.connect(compressor);
       compressor.connect(audioCtx.destination);
     }
 
-    // Map keyboard column → timbre/frequency: left bright/high, right dark/low
+    // Simple impulse generator (noise tail) for reverb
+    function makeImpulseResponse(ctx, seconds=2.0, decay=0.3) {
+      const rate = ctx.sampleRate;
+      const length = Math.max(1, (seconds * rate)|0);
+      const impulse = ctx.createBuffer(2, length, rate);
+      for (let ch = 0; ch < 2; ch++) {
+        const chan = impulse.getChannelData(ch);
+        for (let i = 0; i < length; i++) {
+          // Exponential decay of noise
+          chan[i] = (Math.random()*2 - 1) * Math.pow(1 - i/length, decay*6);
+        }
+      }
+      return impulse;
+    }
+
+    function setReverbMix(mix) {
+      params.reverbMix = Math.min(1, Math.max(0, mix));
+      if (!dryGain || !wetGain) return;
+      // Constant power-ish crossfade
+      const x = params.reverbMix;
+      dryGain.gain.value = Math.cos(x * Math.PI/2);
+      wetGain.gain.value = Math.sin(x * Math.PI/2);
+      updateHUD();
+    }
+
+    // Map keyboard column to base freq + filter brightness
     function soundForKey(key) {
       const { idx, max } = keyToIndex(key);
       const t = max ? idx / max : 0; // 0..1 left→right
-      // Frequency range: ~880 Hz (left) down to ~110 Hz (right)
-      const freq = 880 - t * (880 - 110);
-      // Filter cutoff: brighter left, darker right
-      const cutoff = 12000 - t * 10000; // 12k → 2k
+      const freq = 880 - t * (880 - 110);    // 880 → 110 Hz
+      const cutoff = 12000 - t * 10000;      // 12k → 2k
       return { freq, cutoff, t };
     }
 
     function playPercussiveTone(key) {
-      if (!audioCtx) ensureAudio();
+      ensureAudio();
       if (!audioCtx) return;
       const now = audioCtx.currentTime;
       const { freq, cutoff, t } = soundForKey(key);
 
-      // Tone oscillator (short blip)
+      // Voice nodes
       const osc = audioCtx.createOscillator();
-      // Slightly detune right-side keys for darker character
       osc.type = t < 0.5 ? 'triangle' : 'sawtooth';
       osc.frequency.setValueAtTime(freq, now);
 
-      // Click/noise burst for attack (for a drum-ish transient)
-      const noise = audioCtx.createBufferSource();
-      const buffer = audioCtx.createBuffer(1, audioCtx.sampleRate * 0.1, audioCtx.sampleRate);
-      const data = buffer.getChannelData(0);
-      for (let i=0; i<data.length; i++) data[i] = (Math.random()*2-1) * Math.exp(-i / (data.length*0.25));
-      noise.buffer = buffer;
-
-      // Filter to control brightness
       const filter = audioCtx.createBiquadFilter();
       filter.type = 'lowpass';
       filter.frequency.setValueAtTime(cutoff, now);
       filter.Q.setValueAtTime(0.7 + t*0.6, now);
 
-      // Envelope
-      const env = audioCtx.createGain();
-      const env2 = audioCtx.createGain(); // for noise
+      const env = audioCtx.createGain(); // tone envelope
       env.gain.setValueAtTime(0, now);
       env.gain.linearRampToValueAtTime(0.9, now + 0.005);
       env.gain.exponentialRampToValueAtTime(0.0008, now + 0.35 + t*0.15);
 
+      // Noise transient for drum click
+      const noise = audioCtx.createBufferSource();
+      const buffer = audioCtx.createBuffer(1, audioCtx.sampleRate * 0.1, audioCtx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i=0; i<data.length; i++) data[i] = (Math.random()*2-1) * Math.exp(-i / (data.length*0.25));
+      noise.buffer = buffer;
+      const env2 = audioCtx.createGain();
       env2.gain.setValueAtTime(0.6, now);
       env2.gain.exponentialRampToValueAtTime(0.0008, now + 0.08 + t*0.05);
 
-      // Light touch of stereo width via slight delay
-      const delay = audioCtx.createDelay(0.02);
-      delay.delayTime.setValueAtTime(0.004 + t*0.004, now);
+      // Reverb routing
+      const wet = audioCtx.createGain();
+      const dry = audioCtx.createGain();
 
-      // Wire it up
+      // ===== Modulation sends (per-voice) =====
+      // Filter cutoff modulation
+      const lfoToFilter = audioCtx.createGain();
+      lfoToFilter.gain.value = params.modDepthFilter;  // Hz deviation
+      lfoGain.connect(lfoToFilter);
+      lfoToFilter.connect(filter.frequency);
+
+      // Pitch modulation
+      const lfoToPitch = audioCtx.createGain();
+      lfoToPitch.gain.value = params.modDepthPitch;    // Hz deviation on osc frequency
+      lfoGain.connect(lfoToPitch);
+      lfoToPitch.connect(osc.frequency);
+
+      // Wiring
       osc.connect(filter);
       filter.connect(env);
-      env.connect(delay);
-      delay.connect(master);
+      env.connect(dry);
+      env.connect(wet);
 
       noise.connect(env2);
-      env2.connect(master);
+      env2.connect(dry);
+      env2.connect(wet);
+
+      // Global buses
+      if (!convolver) {
+        // ensureAudio sets it; guard for timing
+        ensureAudio();
+      }
+      wet.connect(convolver);
+      convolver.connect(wetGain);
+      dry.connect(dryGain);
 
       // Start/stop
       osc.start(now);
@@ -269,14 +317,24 @@
     }
 
     /* =========================
-       INPUT / HOOK-UP
+       INPUT / CONTROLS
        ========================= */
+    const pauseBtn = document.getElementById('pauseBtn');
+    pauseBtn.onclick = (e) => {
+      paused = !paused;
+      e.target.textContent = paused ? 'Resume' : 'Pause';
+    };
+    document.getElementById('clearBtn').onclick = () => { fillBG(); bursts.length = 0; };
+
+    // Key presses for notes/visuals
     addEventListener('keydown', async (e) => {
+      // Controls first
+      if (handleControlKeys(e)) return;
+
       if (e.repeat) return;
       const k = e.key.length === 1 ? e.key : '';
       if (!k) return;
 
-      // Resume audio context on first interaction if suspended
       ensureAudio();
       if (audioCtx && audioCtx.state === 'suspended') {
         try { await audioCtx.resume(); } catch {}
@@ -286,6 +344,56 @@
       pulseAtCenter();
       if (!muted) playPercussiveTone(k);
     });
+
+    function pulseAtCenter() {
+      const g = ctx.createRadialGradient(W/2, H/2, 0, W/2, H/2, Math.max(W,H)*0.6);
+      g.addColorStop(0, 'rgba(255,255,255,0.02)');
+      g.addColorStop(1, 'rgba(0,0,0,0.00)');
+      ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
+    }
+
+    function clamp(v, lo, hi){ return Math.min(hi, Math.max(lo, v)); }
+
+    function handleControlKeys(e) {
+      const k = e.key;
+      if (k === 'm' || k === 'M') {
+        muted = !muted; if (master) master.gain.value = muted ? 0 : 0.9;
+        document.getElementById('muteBtn').textContent = muted ? 'Muted' : 'Unmuted';
+        e.preventDefault(); return true;
+      }
+      if (k === 'p' || k === 'P') { paused = !paused; pauseBtn.textContent = paused ? 'Resume' : 'Pause'; e.preventDefault(); return true; }
+      if (k === 'c' || k === 'C') { fillBG(); bursts.length = 0; e.preventDefault(); return true; }
+
+      // Arrow keys: mod + reverb
+      if (k === 'ArrowLeft' || k === 'ArrowRight' || k === 'ArrowUp' || k === 'ArrowDown') {
+        ensureAudio();
+        if (!audioCtx) return true;
+        if (k === 'ArrowLeft' || k === 'ArrowRight') {
+          // Mod depth (filter + a bit of pitch)
+          const delta = (e.shiftKey ? 0 : 1) * (k === 'ArrowRight' ? 60 : -60); // Hz
+          params.modDepthFilter = clamp(params.modDepthFilter + delta,
+            params.modDepthFilterMin, params.modDepthFilterMax);
+          // pitch depth tied loosely to filter depth
+          params.modDepthPitch = clamp((params.modDepthFilter / 100),
+            params.modDepthPitchMin, params.modDepthPitchMax);
+        }
+        if (e.shiftKey && (k === 'ArrowLeft' || k === 'ArrowRight')) {
+          // LFO rate (Shift + Left/Right)
+          const rDelta = (k === 'ArrowRight' ? 0.25 : -0.25);
+          params.lfoRate = clamp(params.lfoRate + rDelta, params.lfoRateMin, params.lfoRateMax);
+          if (lfoOsc) lfoOsc.frequency.setValueAtTime(params.lfoRate, audioCtx.currentTime);
+        }
+        if (k === 'ArrowUp' || k === 'ArrowDown') {
+          // Reverb mix
+          const mixDelta = (k === 'ArrowUp' ? 0.05 : -0.05);
+          setReverbMix(params.reverbMix + mixDelta);
+        }
+        updateHUD();
+        e.preventDefault();
+        return true;
+      }
+      return false;
+    }
   </script>
 </body>
 </html>
