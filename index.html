@@ -1,423 +1,331 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Fractal Keys — 360 Wrap (5360×1080)</title>
-  <style>
-    :root { --bg: #0b0f14; }
-    html, body { height:100%; margin:0; background:#000; color:#cfd8e3; font:14px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
-    /* Onscreen canvas is just a preview. The offscreen buffer is 5360×1080. */
-    #view { display:block; width:100vw; height:auto; max-height:100vh; margin:0 auto; background:#000; }
-    .hud {
-      position: fixed; inset: 12px auto auto 12px; color:#cfd8e3;
-      background: rgba(10,14,18,.55); backdrop-filter: blur(6px);
-      border: 1px solid rgba(255,255,255,.08); border-radius: 12px; padding: 10px 12px;
-      max-width: min(560px, 92vw); z-index: 5;
-    }
-    .row{display:flex; gap:10px; flex-wrap:wrap; margin-top:6px}
-    .btn { display:inline-block; padding:8px 10px; border-radius:10px; user-select:none; cursor:pointer;
-      border:1px solid rgba(255,255,255,.12); background:rgba(255,255,255,.06); color:#e6edf7; }
-    kbd { font:600 12px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      padding:2px 6px; border-radius:6px; background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.12) }
-  </style>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Ribbons 360 — Color Trails + Sound</title>
+<style>
+  :root { --bg: #06080c; }
+  html, body { margin:0; height:100%; background:#000; color:#cfd8e3; font:14px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+  #view { display:block; width:100vw; height:auto; max-height:100vh; margin:0 auto; background:#000; }
+  .hud {
+    position: fixed; left:12px; top:12px; z-index:5; max-width:min(560px,92vw);
+    background:rgba(10,14,18,.55); border:1px solid rgba(255,255,255,.08); border-radius:12px; padding:10px 12px; backdrop-filter: blur(6px);
+  }
+  .row{display:flex; gap:10px; flex-wrap:wrap; margin-top:6px}
+  .btn{display:inline-block; padding:8px 10px; border-radius:10px; border:1px solid rgba(255,255,255,.12); background:rgba(255,255,255,.06); color:#e6edf7; user-select:none; cursor:pointer}
+  kbd{font:600 12px/1 ui-monospace,Menlo,Consolas,monospace; padding:2px 6px; border-radius:6px; background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.12)}
+</style>
 </head>
 <body>
-  <!-- Onscreen preview; we draw the 5360×1080 buffer into this each frame -->
-  <canvas id="view"></canvas>
+<canvas id="view"></canvas>
 
-  <div class="hud">
-    <div><strong>Fractal Keys — 360 Wrap</strong> (internal buffer: <span id="res">5360×1080</span>)</div>
-    <div>Press letters/numbers to spawn fractals + tones. Left keys = lighter/brighter; right = darker/lower.</div>
-    <div style="margin-top:6px">
-      Controls: <kbd>←/→</kbd> Mod depth • <kbd>Shift</kbd>+<kbd>←/→</kbd> LFO rate • <kbd>↑/↓</kbd> Reverb mix •
-      <kbd>M</kbd> Mute • <kbd>P</kbd> Pause • <kbd>C</kbd> Clear • <kbd>F</kbd> Fullscreen preview
-    </div>
-    <div class="row" style="margin-top:6px">
-      <span class="btn" id="clearBtn">Clear</span>
-      <span class="btn" id="pauseBtn">Pause</span>
-      <span class="btn" id="muteBtn">Unmuted</span>
-    </div>
-    <div id="readout" style="margin-top:8px;opacity:.9"></div>
+<div class="hud">
+  <div><strong>Ribbons 360 — Color Trails + Sound</strong> (internal buffer: <span id="res">5360×1080</span>)</div>
+  <div>Press letters/numbers. Left keys = lighter & higher pitch → ribbons rise; right = darker & lower → drift flatter/down.</div>
+  <div style="margin-top:6px">
+    Controls: <kbd>←/→</kbd> Mod depth • <kbd>Shift</kbd>+<kbd>←/→</kbd> LFO rate • <kbd>↑/↓</kbd> Reverb mix •
+    <kbd>M</kbd> Mute • <kbd>P</kbd> Pause • <kbd>C</kbd> Clear • <kbd>F</kbd> Fullscreen
   </div>
+  <div class="row" style="margin-top:6px">
+    <span class="btn" id="clearBtn">Clear</span>
+    <span class="btn" id="pauseBtn">Pause</span>
+    <span class="btn" id="muteBtn">Unmuted</span>
+  </div>
+  <div id="readout" style="margin-top:8px;opacity:.9"></div>
+</div>
 
-  <script>
-    /* =========================
-       CANVAS SETUP (360 wrap)
-       ========================= */
-    const WALL_W = 5360, WALL_H = 1080;              // physical wall resolution
-    const buf = document.createElement('canvas');    // offscreen render target
-    buf.width = WALL_W; buf.height = WALL_H;
-    const btx = buf.getContext('2d', { alpha:false });
+<script>
+/* =========================
+   CANVAS: 5360×1080 offscreen + preview
+   ========================= */
+const WALL_W = 5360, WALL_H = 1080;
+const buf = document.createElement('canvas'); buf.width = WALL_W; buf.height = WALL_H;
+const btx = buf.getContext('2d', { alpha:false });
+const view = document.getElementById('view'), vtx = view.getContext('2d');
 
-    const view = document.getElementById('view');    // onscreen preview
-    const vtx = view.getContext('2d');
+function sizePreview(){
+  const DPR = Math.max(1, Math.min(2, window.devicePixelRatio||1));
+  const ww = innerWidth, wh = innerHeight, aspect = WALL_W/WALL_H;
+  let w = ww, h = Math.floor(ww/aspect); if (h>wh){ h=wh; w=Math.floor(wh*aspect); }
+  view.style.width = w+'px'; view.style.height = h+'px';
+  view.width = Math.floor(w*DPR); view.height = Math.floor(h*DPR);
+  vtx.setTransform(DPR,0,0,DPR,0,0);
+}
+addEventListener('resize', sizePreview, {passive:true}); sizePreview();
 
-    function sizePreview() {
-      const DPR = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
-      // Fit buffer aspect to window (contain)
-      const ww = innerWidth, wh = innerHeight;
-      const aspect = WALL_W / WALL_H;
-      let targetW = ww, targetH = Math.floor(ww / aspect);
-      if (targetH > wh) { targetH = wh; targetW = Math.floor(wh * aspect); }
-      view.style.width = targetW + 'px';
-      view.style.height = targetH + 'px';
-      view.width  = Math.floor(targetW * DPR);
-      view.height = Math.floor(targetH * DPR);
-      vtx.setTransform(DPR,0,0,DPR,0,0); // crisp text if any
-    }
-    addEventListener('resize', sizePreview, { passive:true });
-    sizePreview();
+function clearBuffer() {
+  btx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--bg') || '#06080c';
+  btx.fillRect(0,0,WALL_W,WALL_H);
+}
+clearBuffer();
 
-    /* =========================
-       FRACTAL VISUALS (toroidal)
-       ========================= */
-    const rows = [
-      "`1234567890-=",
-      "qwertyuiop[]\\",
-      "asdfghjkl;'",
-      "zxcvbnm,./"
-    ];
-    const keyToIndex = (k) => {
-      if (!k) return { idx: 0, max: 1 };
-      const key = k.toLowerCase();
-      for (const row of rows) {
-        const i = row.indexOf(key);
-        if (i >= 0) return { idx: i, max: row.length - 1 };
-      }
-      const i = Math.max(0, Math.min(11, (key.charCodeAt(0) || 0) % 12));
-      return { idx: i, max: 11 };
-    };
-    function lightnessForKey(key) {
-      const { idx, max } = keyToIndex(key);
-      const t = max ? idx / max : 0; // 0..1 left→right
-      return 85 - t * (85 - 22);
-    }
-    function RNG(seed) {
-      let s = seed >>> 0;
-      return () => {
-        s ^= s << 13; s ^= s >>> 17; s ^= s << 5;
-        return ((s >>> 0) / 0xffffffff);
-      };
-    }
+/* =========================
+   KEY → COLOR / PITCH MAPPING
+   ========================= */
+const rows = ["`1234567890-=","qwertyuiop[]\\","asdfghjkl;'", "zxcvbnm,./"];
+function keyToIndex(k){
+  if(!k) return {idx:0,max:1};
+  const key=k.toLowerCase();
+  for(const row of rows){ const i=row.indexOf(key); if(i>=0) return {idx:i,max:row.length-1}; }
+  const i=Math.max(0,Math.min(11,(key.charCodeAt(0)||0)%12));
+  return {idx:i,max:11};
+}
+function lightnessForKey(key){ const {idx,max}=keyToIndex(key); const t=max?idx/max:0; return 80 - t*(80-25); }
+function soundForKey(key){
+  const {idx,max}=keyToIndex(key); const t=max?idx/max:0;
+  const freq = 880 - t*(880-110);         // left high → right low
+  const cutoff = 12000 - t*10000;         // brightness tie-in
+  return {t,freq,cutoff};
+}
 
-    const bursts = [];
-    function spawnFractalFromKey(key) {
-      const now = performance.now();
-      const baseL = lightnessForKey(key);
-      const hue = (key.charCodeAt(0) * 11) % 360;
-      const seed = key.split('').reduce((a,c)=>a + c.charCodeAt(0), 0) ^ (now|0);
-      const rnd = RNG(seed);
+/* =========================
+   RIBBONS (horizontal, colorful, lingering)
+   ========================= */
+let paused=false;
+const ribbons = []; // each: {points:[{x,y}], vx, vy, hue, sat, baseL, width, life, born, wobbleT, wobbleRate}
 
-      // Start anywhere in wrap space
-      const start = { x: (WALL_W * rnd())|0, y: (WALL_H * rnd())|0 };
-      const branches = [{
-        x: start.x, y: start.y,
-        angle: -Math.PI/2 + (rnd()-0.5)*0.8,
-        len: WALL_H * (0.09 + rnd()*0.06),
-        depth: 0
-      }];
+function spawnRibbonFromKey(key){
+  const {t,freq} = soundForKey(key);
+  const baseL = lightnessForKey(key);
+  const hue = (key.charCodeAt(0)*11) % 360;
+  const sat = 80;
+  // Horizontal speed (px/s). Slightly faster for lower pitches so they "sweep"
+  const vx = 220 + (1-t)*120; // 220–340 px/s to the right
+  // Vertical velocity tied to pitch: higher pitch → more upward (negative vy)
+  const pitch01 = (freq-110)/(880-110); // 0..1
+  const vy = -40 * pitch01 + 10*(1-pitch01); // roughly -40..+10 px/s
 
-      bursts.push({
-        hue, baseL, startTime: now, life: 3400,
-        branches, rnd
-      });
-    }
+  // Start near a random x, y biased to center
+  const x0 = (Math.random()*WALL_W)|0;
+  const y0 = Math.round(WALL_H*0.35 + (Math.random()-0.5)*WALL_H*0.25);
 
-    let paused = false;
-    function frame(t) {
-      // translucent fade for trails
-      if (!paused) {
-        btx.fillStyle = 'rgba(11,15,20,0.10)'; // adjust alpha for longer/shorter trails
-        btx.fillRect(0,0,WALL_W,WALL_H);
+  const width = 6 + (1-t)*4; // thicker for lower pitch
+  const now = performance.now();
 
-        for (let i=bursts.length-1; i>=0; i--) {
-          const b = bursts[i];
-          const age = t - b.startTime;
-          if (age > b.life) { bursts.splice(i,1); continue; }
-          stepBurst(b, age);
-        }
-      }
+  ribbons.push({
+    points:[{x:x0,y:y0}],
+    vx, vy,
+    hue, sat, baseL,
+    width,
+    life: 4200,    // ms ribbon emits new points
+    born: now,
+    wobbleT: Math.random()*Math.PI*2,
+    wobbleRate: 1.0 + Math.random()*1.5, // Hz-ish
+  });
+}
 
-      // Present offscreen buffer onto the preview canvas
-      vtx.clearRect(0,0,view.width,view.height);
-      // Draw scaled-to-fit
-      vtx.drawImage(buf, 0, 0, view.width, view.height);
+// toroidal horizontal helpers
+function wrapX(x){ x%=WALL_W; if(x<0) x+=WALL_W; return x; }
+function strokeWrapped(draw){
+  for(let k=-1;k<=1;k++){ btx.save(); btx.translate(k*WALL_W,0); draw(btx); btx.restore(); }
+}
 
-      requestAnimationFrame(frame);
-    }
-    requestAnimationFrame(frame);
+let lastT = performance.now();
+function frame(t){
+  // Long trails: very gentle fade
+  btx.fillStyle = 'rgba(6,8,12,0.035)'; // smaller alpha = longer linger
+  btx.fillRect(0,0,WALL_W,WALL_H);
 
-    // Draw a segment with horizontal wrap (duplicate at -W, 0, +W)
-    function strokeWrapped(drawFn) {
-      for (let k=-1; k<=1; k++) {
-        btx.save();
-        btx.translate(k*WALL_W, 0);
-        drawFn(btx);
-        btx.restore();
-      }
-    }
-    function wrapX(x) {
-      // keep coordinates roughly within [0, W)
-      x %= WALL_W;
-      if (x < 0) x += WALL_W;
-      return x;
-    }
+  if(!paused){
+    const dt = Math.min(0.05,(t-lastT)/1000); lastT=t;
 
-    function stepBurst(b, age) {
-      const speed = 1 + (age / b.life) * 1.1;
-      const newBranches = [];
-      for (const br of b.branches) {
-        // advance
-        let x2 = br.x + Math.cos(br.angle) * br.len * 0.06 * speed;
-        let y2 = br.y + Math.sin(br.angle) * br.len * 0.06 * speed;
+    for(let i=ribbons.length-1;i>=0;i--){
+      const r = ribbons[i];
+      const age = t - r.born;
 
-        // wrap endpoints horizontally (toroidal)
-        x2 = wrapX(x2);
-        br.x = wrapX(br.x);
-        // vertical clamp with gentle bounce to keep things visible
-        if (y2 < 0 || y2 > WALL_H) { br.angle *= -1; y2 = Math.max(0, Math.min(WALL_H, y2)); }
+      // Emit a new point along the path
+      const head = r.points[r.points.length-1];
+      // gentle sinusoidal wobble to avoid dead-straight lines
+      r.wobbleT += r.wobbleRate * dt;
+      const wob = Math.sin(r.wobbleT) * (8 + 18*(1 - Math.min(1, age/r.life)));
+      const nx = wrapX(head.x + r.vx*dt);
+      let ny = head.y + (r.vy*dt) + wob*dt;
+      if(ny<0) ny=0; if(ny>WALL_H) ny=WALL_H;
 
-        const depthT = Math.min(1, br.depth / 8);
-        const l = Math.max(18, b.baseL - depthT * 50);
-        const color = `hsl(${b.hue + depthT*60}, 75%, ${l}%)`;
-        const width = Math.max(1, (6 - br.depth) * 0.9);
+      r.points.push({x:nx,y:ny});
+      // keep last N points for each ribbon
+      const maxPts = 220; if(r.points.length>maxPts) r.points.splice(0, r.points.length-maxPts);
 
-        strokeWrapped((ctx) => {
-          ctx.strokeStyle = color;
-          ctx.lineWidth = width;
-          ctx.beginPath();
-          ctx.moveTo(br.x, br.y);
-          ctx.lineTo(x2, y2);
-          ctx.stroke();
-        });
+      // Draw ribbon as a thick, colorful line with slight hue drift
+      const depthT = Math.min(1, age/r.life);
+      const l = Math.max(20, r.baseL - depthT*10);    // fade slightly darker over life
+      const hue = (r.hue + depthT*40) % 360;
+      const w = r.width * (0.85 + 0.15*Math.cos(r.wobbleT*0.7));
 
-        // update current branch
-        br.x = x2; br.y = y2; br.len *= 0.985;
+      strokeWrapped((ctx)=>{
+        ctx.lineWidth = w;
+        ctx.lineJoin = 'round';
+        ctx.lineCap = 'round';
+        ctx.globalCompositeOperation = 'lighter'; // add glow on overlaps
+        // Gradient along the ribbon segment (head brighter)
+        const p0 = r.points[0], p1 = r.points[r.points.length-1];
+        const grad = ctx.createLinearGradient(p0.x, p0.y, p1.x, p1.y);
+        grad.addColorStop(0, `hsl(${(hue+180)%360} ${r.sat}% ${Math.max(18,l-15)}%)`);
+        grad.addColorStop(1, `hsl(${hue} ${r.sat}% ${l}%)`);
+        ctx.strokeStyle = grad;
 
-        const willBranch = br.len > 3 && Math.random() < 0.28;
-        if (willBranch && br.depth < 8) {
-          const n = 2 + (Math.random() < 0.2 ? 1 : 0);
-          for (let k=0; k<n; k++) {
-            const ang = br.angle + (Math.random()-0.5) * (Math.PI/3);
-            newBranches.push({ x:x2, y:y2, angle:ang, len:br.len*(0.72+Math.random()*0.2), depth:br.depth+1 });
+        ctx.beginPath();
+        const pts = r.points;
+        // Smooth path (simple Catmull-Rom-ish)
+        for(let j=0;j<pts.length;j++){
+          const p = pts[j];
+          if(j===0) ctx.moveTo(p.x,p.y);
+          else {
+            const prev = pts[j-1];
+            const mx = (prev.x+p.x)/2, my = (prev.y+p.y)/2;
+            ctx.quadraticCurveTo(prev.x,prev.y,mx,my);
           }
         }
-      }
-      // prune tiny
-      b.branches = b.branches.filter(br => br.len > 1.6).concat(newBranches.slice(0, 120));
+        ctx.stroke();
+        ctx.globalCompositeOperation = 'source-over';
+      });
+
+      // Retire ribbon if old and short
+      if(age > r.life + 4000 && r.points.length < 40) ribbons.splice(i,1);
     }
+  }
 
-    function clearBuffer() {
-      btx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--bg') || '#0b0f14';
-      btx.fillRect(0,0,WALL_W,WALL_H);
+  // Present to preview
+  vtx.clearRect(0,0,view.width,view.height);
+  vtx.drawImage(buf, 0, 0, view.width, view.height);
+
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+/* =========================
+   AUDIO: Reverb + LFO (unchanged behavior)
+   ========================= */
+let audioCtx, master, compressor, convolver, wetGain, dryGain, lfoOsc, lfoGain, muted=false;
+const params = {
+  lfoRate: 3.0, lfoRateMin: 0.1, lfoRateMax: 12,
+  modDepthFilter: 400, modDepthFilterMin: 0, modDepthFilterMax: 2000,
+  modDepthPitch: 4,   modDepthPitchMin: 0, modDepthPitchMax: 20,
+  reverbMix: 0.28, reverbDecay: 2.4
+};
+const readout = document.getElementById('readout');
+function updateHUD(){
+  readout.textContent =
+    `LFO rate: ${params.lfoRate.toFixed(2)} Hz  |  Mod depth (filter): ${Math.round(params.modDepthFilter)} Hz  |  Mod depth (pitch): ${params.modDepthPitch.toFixed(1)} Hz  |  Reverb mix: ${(params.reverbMix*100|0)}%  |  ribbons: ${ribbons.length}`;
+}
+updateHUD();
+
+document.getElementById('muteBtn').onclick = () => {
+  muted = !muted; if(master) master.gain.value = muted ? 0 : 0.9;
+  document.getElementById('muteBtn').textContent = muted ? 'Muted' : 'Unmuted';
+};
+
+document.getElementById('pauseBtn').onclick = (e) => {
+  paused = !paused; e.target.textContent = paused ? 'Resume' : 'Pause';
+};
+
+document.getElementById('clearBtn').onclick = () => { clearBuffer(); ribbons.length = 0; };
+
+function ensureAudio(){
+  if(audioCtx) return;
+  audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+
+  master = audioCtx.createGain(); master.gain.value = 0.9;
+  compressor = audioCtx.createDynamicsCompressor();
+  compressor.threshold.setValueAtTime(-24, audioCtx.currentTime);
+  compressor.knee.setValueAtTime(30, audioCtx.currentTime);
+  compressor.ratio.setValueAtTime(6, audioCtx.currentTime);
+  compressor.attack.setValueAtTime(0.003, audioCtx.currentTime);
+  compressor.release.setValueAtTime(0.25, audioCtx.currentTime);
+
+  convolver = audioCtx.createConvolver();
+  convolver.buffer = makeImpulseResponse(audioCtx, params.reverbDecay, 0.35);
+  wetGain = audioCtx.createGain(); dryGain = audioCtx.createGain();
+  setReverbMix(params.reverbMix);
+
+  lfoOsc = audioCtx.createOscillator(); lfoOsc.type='sine'; lfoOsc.frequency.value = params.lfoRate;
+  lfoGain = audioCtx.createGain(); lfoGain.gain.value = 1;
+  lfoOsc.connect(lfoGain); lfoOsc.start();
+
+  dryGain.connect(compressor); wetGain.connect(compressor); compressor.connect(audioCtx.destination);
+}
+function makeImpulseResponse(ctx, seconds=2.0, decay=0.35){
+  const rate=ctx.sampleRate, len=Math.max(1,(seconds*rate)|0); const buf=ctx.createBuffer(2,len,rate);
+  for(let ch=0; ch<2; ch++){ const d=buf.getChannelData(ch); for(let i=0;i<len;i++){ d[i]=(Math.random()*2-1)*Math.pow(1-i/len, decay*6); } }
+  return buf;
+}
+function setReverbMix(mix){
+  params.reverbMix=Math.min(1,Math.max(0,mix));
+  if(!dryGain||!wetGain) return;
+  const x=params.reverbMix; dryGain.gain.value=Math.cos(x*Math.PI/2); wetGain.gain.value=Math.sin(x*Math.PI/2);
+  updateHUD();
+}
+function playPercussiveTone(key){
+  ensureAudio(); if(!audioCtx) return;
+  const now=audioCtx.currentTime;
+  const {freq,cutoff,t}=soundForKey(key);
+
+  const osc=audioCtx.createOscillator(); osc.type=t<0.5?'triangle':'sawtooth'; osc.frequency.setValueAtTime(freq,now);
+  const filter=audioCtx.createBiquadFilter(); filter.type='lowpass'; filter.frequency.setValueAtTime(cutoff,now); filter.Q.setValueAtTime(0.7+t*0.6,now);
+
+  const env=audioCtx.createGain(); env.gain.setValueAtTime(0,now); env.gain.linearRampToValueAtTime(0.9,now+0.005); env.gain.exponentialRampToValueAtTime(0.0008,now+0.35+t*0.15);
+
+  const noise=audioCtx.createBufferSource(); const buffer=audioCtx.createBuffer(1,audioCtx.sampleRate*0.1,audioCtx.sampleRate);
+  const data=buffer.getChannelData(0); for(let i=0;i<data.length;i++) data[i]=(Math.random()*2-1)*Math.exp(-i/(data.length*0.25));
+  noise.buffer=buffer; const env2=audioCtx.createGain(); env2.gain.setValueAtTime(0.6,now); env2.gain.exponentialRampToValueAtTime(0.0008,now+0.08+t*0.05);
+
+  // LFO sends
+  const lfoToFilter=audioCtx.createGain(); lfoToFilter.gain.value=params.modDepthFilter;
+  const lfoToPitch=audioCtx.createGain();  lfoToPitch.gain.value=params.modDepthPitch;
+  lfoGain.connect(lfoToFilter); lfoToFilter.connect(filter.frequency);
+  lfoGain.connect(lfoToPitch);  lfoToPitch.connect(osc.frequency);
+
+  const wet=audioCtx.createGain(), dry=audioCtx.createGain();
+  osc.connect(filter); filter.connect(env); env.connect(dry); env.connect(wet);
+  noise.connect(env2); env2.connect(dry); env2.connect(wet);
+  wet.connect(convolver); convolver.connect(wetGain); dry.connect(dryGain);
+
+  osc.start(now); noise.start(now);
+  osc.stop(now + 0.6 + t*0.2); noise.stop(now + 0.12 + t*0.05);
+}
+
+/* =========================
+   INPUT: keys & controls
+   ========================= */
+addEventListener('keydown', async (e)=>{
+  if(handleControlKeys(e)) return;
+  if(e.repeat) return;
+  const k = e.key.length===1 ? e.key : '';
+  if(!k) return;
+
+  ensureAudio();
+  if(audioCtx && audioCtx.state==='suspended'){ try{ await audioCtx.resume(); }catch{} }
+
+  spawnRibbonFromKey(k);
+  if(!muted) playPercussiveTone(k);
+});
+
+function handleControlKeys(e){
+  const k=e.key;
+  if(k==='m'||k==='M'){ muted=!muted; if(master) master.gain.value=muted?0:0.9; document.getElementById('muteBtn').textContent=muted?'Muted':'Unmuted'; e.preventDefault(); return true; }
+  if(k==='p'||k==='P'){ paused=!paused; document.getElementById('pauseBtn').textContent=paused?'Resume':'Pause'; e.preventDefault(); return true; }
+  if(k==='c'||k==='C'){ clearBuffer(); ribbons.length=0; e.preventDefault(); return true; }
+  if(k==='f'||k==='F'){ toggleFullscreen(); e.preventDefault(); return true; }
+  if(k==='ArrowLeft'||k==='ArrowRight'||k==='ArrowUp'||k==='ArrowDown'){
+    ensureAudio(); if(!audioCtx) return true;
+    if(k==='ArrowLeft'||k==='ArrowRight'){
+      const delta=(e.shiftKey?0:1)*(k==='ArrowRight'?60:-60);
+      params.modDepthFilter = clamp(params.modDepthFilter+delta, params.modDepthFilterMin, params.modDepthFilterMax);
+      params.modDepthPitch  = clamp((params.modDepthFilter/100), params.modDepthPitchMin, params.modDepthPitchMax);
     }
-    clearBuffer();
-
-    /* =========================
-       AUDIO: Reverb + Mod (unchanged UI)
-       ========================= */
-    let audioCtx, master, compressor, convolver, wetGain, dryGain, lfoOsc, lfoGain;
-    let muted = false;
-
-    const params = {
-      lfoRate: 3.0, lfoRateMin: 0.1, lfoRateMax: 12,
-      modDepthFilter: 400, modDepthFilterMin: 0, modDepthFilterMax: 2000,
-      modDepthPitch: 4,   modDepthPitchMin: 0, modDepthPitchMax: 20,
-      reverbMix: 0.25, reverbDecay: 2.2
-    };
-
-    const readout = document.getElementById('readout');
-    function updateHUD() {
-      readout.textContent =
-        `LFO rate: ${params.lfoRate.toFixed(2)} Hz  |  Mod depth (filter): ${Math.round(params.modDepthFilter)} Hz  |  Mod depth (pitch): ${params.modDepthPitch.toFixed(1)} Hz  |  Reverb mix: ${(params.reverbMix*100|0)}%`;
+    if(e.shiftKey && (k==='ArrowLeft'||k==='ArrowRight')){
+      const rDelta=(k==='ArrowRight'?0.25:-0.25);
+      params.lfoRate = clamp(params.lfoRate+rDelta, params.lfoRateMin, params.lfoRateMax);
+      if(lfoOsc) lfoOsc.frequency.setValueAtTime(params.lfoRate, audioCtx.currentTime);
     }
-    updateHUD();
-
-    const muteBtn = document.getElementById('muteBtn');
-    muteBtn.addEventListener('click', () => {
-      muted = !muted;
-      if (master) master.gain.value = muted ? 0 : 0.9;
-      muteBtn.textContent = muted ? 'Muted' : 'Unmuted';
-    });
-    const pauseBtn = document.getElementById('pauseBtn');
-    pauseBtn.onclick = (e) => { paused = !paused; e.target.textContent = paused ? 'Resume' : 'Pause'; };
-
-    function ensureAudio() {
-      if (audioCtx) return;
-      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-
-      master = audioCtx.createGain(); master.gain.value = 0.9;
-      compressor = audioCtx.createDynamicsCompressor();
-      compressor.threshold.setValueAtTime(-24, audioCtx.currentTime);
-      compressor.knee.setValueAtTime(30, audioCtx.currentTime);
-      compressor.ratio.setValueAtTime(6, audioCtx.currentTime);
-      compressor.attack.setValueAtTime(0.003, audioCtx.currentTime);
-      compressor.release.setValueAtTime(0.25, audioCtx.currentTime);
-
-      convolver = audioCtx.createConvolver();
-      convolver.buffer = makeImpulseResponse(audioCtx, params.reverbDecay, 0.3);
-      wetGain = audioCtx.createGain(); dryGain = audioCtx.createGain();
-      setReverbMix(params.reverbMix);
-
-      lfoOsc = audioCtx.createOscillator();
-      lfoOsc.type = 'sine';
-      lfoOsc.frequency.value = params.lfoRate;
-      lfoGain = audioCtx.createGain(); lfoGain.gain.value = 1;
-      lfoOsc.connect(lfoGain);
-      lfoOsc.start();
-
-      dryGain.connect(compressor);
-      wetGain.connect(compressor);
-      compressor.connect(audioCtx.destination);
-    }
-
-    function makeImpulseResponse(ctx, seconds=2.0, decay=0.3) {
-      const rate = ctx.sampleRate, length = Math.max(1, (seconds * rate)|0);
-      const impulse = ctx.createBuffer(2, length, rate);
-      for (let ch = 0; ch < 2; ch++) {
-        const chan = impulse.getChannelData(ch);
-        for (let i = 0; i < length; i++) {
-          chan[i] = (Math.random()*2 - 1) * Math.pow(1 - i/length, decay*6);
-        }
-      }
-      return impulse;
-    }
-    function setReverbMix(mix) {
-      params.reverbMix = Math.min(1, Math.max(0, mix));
-      if (!dryGain || !wetGain) return;
-      const x = params.reverbMix;
-      dryGain.gain.value = Math.cos(x * Math.PI/2);
-      wetGain.gain.value = Math.sin(x * Math.PI/2);
-      updateHUD();
-    }
-    function soundForKey(key) {
-      const { idx, max } = keyToIndex(key);
-      const t = max ? idx / max : 0;
-      const freq = 880 - t * (880 - 110);
-      const cutoff = 12000 - t * 10000;
-      return { freq, cutoff, t };
-    }
-    function playPercussiveTone(key) {
-      ensureAudio();
-      if (!audioCtx) return;
-      const now = audioCtx.currentTime;
-      const { freq, cutoff, t } = soundForKey(key);
-
-      const osc = audioCtx.createOscillator();
-      osc.type = t < 0.5 ? 'triangle' : 'sawtooth';
-      osc.frequency.setValueAtTime(freq, now);
-
-      const filter = audioCtx.createBiquadFilter();
-      filter.type = 'lowpass';
-      filter.frequency.setValueAtTime(cutoff, now);
-      filter.Q.setValueAtTime(0.7 + t*0.6, now);
-
-      const env = audioCtx.createGain();
-      env.gain.setValueAtTime(0, now);
-      env.gain.linearRampToValueAtTime(0.9, now + 0.005);
-      env.gain.exponentialRampToValueAtTime(0.0008, now + 0.35 + t*0.15);
-
-      const noise = audioCtx.createBufferSource();
-      const buffer = audioCtx.createBuffer(1, audioCtx.sampleRate * 0.1, audioCtx.sampleRate);
-      const data = buffer.getChannelData(0);
-      for (let i=0; i<data.length; i++) data[i] = (Math.random()*2-1) * Math.exp(-i / (data.length*0.25));
-      noise.buffer = buffer;
-      const env2 = audioCtx.createGain();
-      env2.gain.setValueAtTime(0.6, now);
-      env2.gain.exponentialRampToValueAtTime(0.0008, now + 0.08 + t*0.05);
-
-      // Per-voice modulation sends
-      const lfoToFilter = audioCtx.createGain(); lfoToFilter.gain.value = params.modDepthFilter;
-      const lfoToPitch  = audioCtx.createGain(); lfoToPitch.gain.value  = params.modDepthPitch;
-      lfoGain.connect(lfoToFilter); lfoToFilter.connect(filter.frequency);
-      lfoGain.connect(lfoToPitch);  lfoToPitch.connect(osc.frequency);
-
-      const wet = audioCtx.createGain(), dry = audioCtx.createGain();
-
-      osc.connect(filter);
-      filter.connect(env);
-      env.connect(dry);
-      env.connect(wet);
-
-      noise.connect(env2);
-      env2.connect(dry);
-      env2.connect(wet);
-
-      wet.connect(convolver); convolver.connect(wetGain);
-      dry.connect(dryGain);
-
-      osc.start(now); noise.start(now);
-      osc.stop(now + 0.6 + t*0.2);
-      noise.stop(now + 0.12 + t*0.05);
-    }
-
-    /* =========================
-       INPUT / CONTROLS
-       ========================= */
-    document.getElementById('clearBtn').onclick = () => { clearBuffer(); bursts.length = 0; };
-    addEventListener('keydown', async (e) => {
-      // Controls first
-      if (handleControlKeys(e)) return;
-
-      if (e.repeat) return;
-      const k = e.key.length === 1 ? e.key : '';
-      if (!k) return;
-
-      ensureAudio();
-      if (audioCtx && audioCtx.state === 'suspended') {
-        try { await audioCtx.resume(); } catch {}
-      }
-
-      spawnFractalFromKey(k);
-      if (!muted) playPercussiveTone(k);
-    });
-
-    function handleControlKeys(e) {
-      const k = e.key;
-      if (k === 'm' || k === 'M') {
-        muted = !muted; if (master) master.gain.value = muted ? 0 : 0.9;
-        document.getElementById('muteBtn').textContent = muted ? 'Muted' : 'Unmuted';
-        e.preventDefault(); return true;
-      }
-      if (k === 'p' || k === 'P') {
-        paused = !paused; document.getElementById('pauseBtn').textContent = paused ? 'Resume' : 'Pause';
-        e.preventDefault(); return true;
-      }
-      if (k === 'c' || k === 'C') { clearBuffer(); bursts.length = 0; e.preventDefault(); return true; }
-      if (k === 'f' || k === 'F') { toggleFullscreen(); e.preventDefault(); return true; }
-
-      // Arrow keys: modulation + reverb
-      if (k === 'ArrowLeft' || k === 'ArrowRight' || k === 'ArrowUp' || k === 'ArrowDown') {
-        ensureAudio();
-        if (!audioCtx) return true;
-        if (k === 'ArrowLeft' || k === 'ArrowRight') {
-          // Mod depth (filter) + tied pitch depth
-          const delta = (e.shiftKey ? 0 : 1) * (k === 'ArrowRight' ? 60 : -60);
-          params.modDepthFilter = clamp(params.modDepthFilter + delta, params.modDepthFilterMin, params.modDepthFilterMax);
-          params.modDepthPitch  = clamp((params.modDepthFilter / 100), params.modDepthPitchMin, params.modDepthPitchMax);
-        }
-        if (e.shiftKey && (k === 'ArrowLeft' || k === 'ArrowRight')) {
-          const rDelta = (k === 'ArrowRight' ? 0.25 : -0.25);
-          params.lfoRate = clamp(params.lfoRate + rDelta, params.lfoRateMin, params.lfoRateMax);
-          if (lfoOsc) lfoOsc.frequency.setValueAtTime(params.lfoRate, audioCtx.currentTime);
-        }
-        if (k === 'ArrowUp' || k === 'ArrowDown') {
-          const mixDelta = (k === 'ArrowUp' ? 0.05 : -0.05);
-          setReverbMix(params.reverbMix + mixDelta);
-        }
-        updateHUD();
-        e.preventDefault();
-        return true;
-      }
-      return false;
-    }
-    function toggleFullscreen() {
-      const el = document.documentElement;
-      if (!document.fullscreenElement) el.requestFullscreen?.();
-      else document.exitFullscreen?.();
-    }
-    function clamp(v, lo, hi){ return Math.min(hi, Math.max(lo, v)); }
-  </script>
+    if(k==='ArrowUp'||k==='ArrowDown'){ const mixDelta=(k==='ArrowUp'?0.05:-0.05); setReverbMix(params.reverbMix+mixDelta); }
+    updateHUD(); e.preventDefault(); return true;
+  }
+  return false;
+}
+function toggleFullscreen(){ const el=document.documentElement; if(!document.fullscreenElement) el.requestFullscreen?.(); else document.exitFullscreen?.(); }
+function clamp(v,lo,hi){ return Math.min(hi, Math.max(lo, v)); }
+</script>
 </body>
 </html>
