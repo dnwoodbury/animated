@@ -3,38 +3,37 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Fractal Keys — Reverb + Mod</title>
+  <title>Fractal Keys — 360 Wrap (5360×1080)</title>
   <style>
     :root { --bg: #0b0f14; }
-    html, body { height: 100%; margin: 0; background: var(--bg); }
-    canvas { display: block; width: 100vw; height: 100vh; }
+    html, body { height:100%; margin:0; background:#000; color:#cfd8e3; font:14px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+    /* Onscreen canvas is just a preview. The offscreen buffer is 5360×1080. */
+    #view { display:block; width:100vw; height:auto; max-height:100vh; margin:0 auto; background:#000; }
     .hud {
-      position: fixed; inset: 16px auto auto 16px; color: #cfd8e3;
-      font: 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      position: fixed; inset: 12px auto auto 12px; color:#cfd8e3;
       background: rgba(10,14,18,.55); backdrop-filter: blur(6px);
-      border: 1px solid rgba(255,255,255,.08); border-radius: 12px; padding: 12px 14px;
-      max-width: min(520px, 92vw)
+      border: 1px solid rgba(255,255,255,.08); border-radius: 12px; padding: 10px 12px;
+      max-width: min(560px, 92vw); z-index: 5;
     }
-    .row { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px }
-    .btn {
-      display:inline-block; padding:8px 10px; border-radius:10px; user-select:none; cursor:pointer;
-      border:1px solid rgba(255,255,255,.12); background:rgba(255,255,255,.06); color:#e6edf7;
-    }
+    .row{display:flex; gap:10px; flex-wrap:wrap; margin-top:6px}
+    .btn { display:inline-block; padding:8px 10px; border-radius:10px; user-select:none; cursor:pointer;
+      border:1px solid rgba(255,255,255,.12); background:rgba(255,255,255,.06); color:#e6edf7; }
     kbd { font:600 12px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
       padding:2px 6px; border-radius:6px; background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.12) }
   </style>
 </head>
 <body>
-  <canvas id="c"></canvas>
-  <div class="hud" id="hud">
-    <div><strong>Fractal Keys — Reverb + Modulation</strong></div>
+  <!-- Onscreen preview; we draw the 5360×1080 buffer into this each frame -->
+  <canvas id="view"></canvas>
+
+  <div class="hud">
+    <div><strong>Fractal Keys — 360 Wrap</strong> (internal buffer: <span id="res">5360×1080</span>)</div>
     <div>Press letters/numbers to spawn fractals + tones. Left keys = lighter/brighter; right = darker/lower.</div>
     <div style="margin-top:6px">
-      Controls:
-      <div><kbd>←/→</kbd> Mod depth • <kbd>Shift</kbd>+<kbd>←/→</kbd> LFO rate • <kbd>↑/↓</kbd> Reverb mix</div>
-      <div><kbd>M</kbd> Mute • <kbd>P</kbd> Pause • <kbd>C</kbd> Clear</div>
+      Controls: <kbd>←/→</kbd> Mod depth • <kbd>Shift</kbd>+<kbd>←/→</kbd> LFO rate • <kbd>↑/↓</kbd> Reverb mix •
+      <kbd>M</kbd> Mute • <kbd>P</kbd> Pause • <kbd>C</kbd> Clear • <kbd>F</kbd> Fullscreen preview
     </div>
-    <div class="row" style="margin-top:8px">
+    <div class="row" style="margin-top:6px">
       <span class="btn" id="clearBtn">Clear</span>
       <span class="btn" id="pauseBtn">Pause</span>
       <span class="btn" id="muteBtn">Unmuted</span>
@@ -44,21 +43,35 @@
 
   <script>
     /* =========================
-       CANVAS / FRACTAL VISUALS
+       CANVAS SETUP (360 wrap)
        ========================= */
-    const canvas = document.getElementById('c');
-    const ctx = canvas.getContext('2d');
-    let W, H, DPR;
-    function resize() {
-      DPR = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
-      W = canvas.width  = Math.floor(innerWidth  * DPR);
-      H = canvas.height = Math.floor(innerHeight * DPR);
-      canvas.style.width  = innerWidth + 'px';
-      canvas.style.height = innerHeight + 'px';
-    }
-    addEventListener('resize', resize, { passive: true });
-    resize();
+    const WALL_W = 5360, WALL_H = 1080;              // physical wall resolution
+    const buf = document.createElement('canvas');    // offscreen render target
+    buf.width = WALL_W; buf.height = WALL_H;
+    const btx = buf.getContext('2d', { alpha:false });
 
+    const view = document.getElementById('view');    // onscreen preview
+    const vtx = view.getContext('2d');
+
+    function sizePreview() {
+      const DPR = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+      // Fit buffer aspect to window (contain)
+      const ww = innerWidth, wh = innerHeight;
+      const aspect = WALL_W / WALL_H;
+      let targetW = ww, targetH = Math.floor(ww / aspect);
+      if (targetH > wh) { targetH = wh; targetW = Math.floor(wh * aspect); }
+      view.style.width = targetW + 'px';
+      view.style.height = targetH + 'px';
+      view.width  = Math.floor(targetW * DPR);
+      view.height = Math.floor(targetH * DPR);
+      vtx.setTransform(DPR,0,0,DPR,0,0); // crisp text if any
+    }
+    addEventListener('resize', sizePreview, { passive:true });
+    sizePreview();
+
+    /* =========================
+       FRACTAL VISUALS (toroidal)
+       ========================= */
     const rows = [
       "`1234567890-=",
       "qwertyuiop[]\\",
@@ -87,6 +100,7 @@
         return ((s >>> 0) / 0xffffffff);
       };
     }
+
     const bursts = [];
     function spawnFractalFromKey(key) {
       const now = performance.now();
@@ -94,15 +108,29 @@
       const hue = (key.charCodeAt(0) * 11) % 360;
       const seed = key.split('').reduce((a,c)=>a + c.charCodeAt(0), 0) ^ (now|0);
       const rnd = RNG(seed);
-      const start = { x: W * (0.45 + rnd()*0.1), y: H * (0.55 + rnd()*0.1) };
-      const branches = [{ x:start.x, y:start.y, angle:-Math.PI/2 + (rnd()-0.5)*0.4, len:H*0.12, depth:0 }];
-      bursts.push({ hue, baseL, startTime: now, life: 3200, branches, rnd });
+
+      // Start anywhere in wrap space
+      const start = { x: (WALL_W * rnd())|0, y: (WALL_H * rnd())|0 };
+      const branches = [{
+        x: start.x, y: start.y,
+        angle: -Math.PI/2 + (rnd()-0.5)*0.8,
+        len: WALL_H * (0.09 + rnd()*0.06),
+        depth: 0
+      }];
+
+      bursts.push({
+        hue, baseL, startTime: now, life: 3400,
+        branches, rnd
+      });
     }
+
     let paused = false;
     function frame(t) {
+      // translucent fade for trails
       if (!paused) {
-        ctx.fillStyle = 'rgba(11,15,20,0.12)';
-        ctx.fillRect(0,0,W,H);
+        btx.fillStyle = 'rgba(11,15,20,0.10)'; // adjust alpha for longer/shorter trails
+        btx.fillRect(0,0,WALL_W,WALL_H);
+
         for (let i=bursts.length-1; i>=0; i--) {
           const b = bursts[i];
           const age = t - b.startTime;
@@ -110,22 +138,64 @@
           stepBurst(b, age);
         }
       }
+
+      // Present offscreen buffer onto the preview canvas
+      vtx.clearRect(0,0,view.width,view.height);
+      // Draw scaled-to-fit
+      vtx.drawImage(buf, 0, 0, view.width, view.height);
+
       requestAnimationFrame(frame);
     }
     requestAnimationFrame(frame);
+
+    // Draw a segment with horizontal wrap (duplicate at -W, 0, +W)
+    function strokeWrapped(drawFn) {
+      for (let k=-1; k<=1; k++) {
+        btx.save();
+        btx.translate(k*WALL_W, 0);
+        drawFn(btx);
+        btx.restore();
+      }
+    }
+    function wrapX(x) {
+      // keep coordinates roughly within [0, W)
+      x %= WALL_W;
+      if (x < 0) x += WALL_W;
+      return x;
+    }
+
     function stepBurst(b, age) {
-      const speed = 1 + (age / b.life) * 1.2;
+      const speed = 1 + (age / b.life) * 1.1;
       const newBranches = [];
       for (const br of b.branches) {
-        const x2 = br.x + Math.cos(br.angle) * br.len * 0.06 * speed;
-        const y2 = br.y + Math.sin(br.angle) * br.len * 0.06 * speed;
+        // advance
+        let x2 = br.x + Math.cos(br.angle) * br.len * 0.06 * speed;
+        let y2 = br.y + Math.sin(br.angle) * br.len * 0.06 * speed;
+
+        // wrap endpoints horizontally (toroidal)
+        x2 = wrapX(x2);
+        br.x = wrapX(br.x);
+        // vertical clamp with gentle bounce to keep things visible
+        if (y2 < 0 || y2 > WALL_H) { br.angle *= -1; y2 = Math.max(0, Math.min(WALL_H, y2)); }
+
         const depthT = Math.min(1, br.depth / 8);
         const l = Math.max(18, b.baseL - depthT * 50);
-        ctx.strokeStyle = `hsl(${b.hue + depthT*60}, 75%, ${l}%)`;
-        ctx.lineWidth = Math.max(1, (6 - br.depth) * DPR * 0.5);
-        ctx.beginPath(); ctx.moveTo(br.x, br.y); ctx.lineTo(x2, y2); ctx.stroke();
+        const color = `hsl(${b.hue + depthT*60}, 75%, ${l}%)`;
+        const width = Math.max(1, (6 - br.depth) * 0.9);
+
+        strokeWrapped((ctx) => {
+          ctx.strokeStyle = color;
+          ctx.lineWidth = width;
+          ctx.beginPath();
+          ctx.moveTo(br.x, br.y);
+          ctx.lineTo(x2, y2);
+          ctx.stroke();
+        });
+
+        // update current branch
         br.x = x2; br.y = y2; br.len *= 0.985;
-        const willBranch = br.len > 4 * DPR && Math.random() < 0.28;
+
+        const willBranch = br.len > 3 && Math.random() < 0.28;
         if (willBranch && br.depth < 8) {
           const n = 2 + (Math.random() < 0.2 ? 1 : 0);
           for (let k=0; k<n; k++) {
@@ -134,30 +204,27 @@
           }
         }
       }
-      b.branches = b.branches.filter(br => br.len > 2*DPR).concat(newBranches.slice(0, 100));
+      // prune tiny
+      b.branches = b.branches.filter(br => br.len > 1.6).concat(newBranches.slice(0, 120));
     }
-    function fillBG() {
-      ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--bg');
-      ctx.fillRect(0,0,W,H);
+
+    function clearBuffer() {
+      btx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--bg') || '#0b0f14';
+      btx.fillRect(0,0,WALL_W,WALL_H);
     }
-    fillBG();
+    clearBuffer();
 
     /* =========================
-       AUDIO: REVERB + MODULATION
+       AUDIO: Reverb + Mod (unchanged UI)
        ========================= */
     let audioCtx, master, compressor, convolver, wetGain, dryGain, lfoOsc, lfoGain;
     let muted = false;
 
-    // User-tweakable params (and ranges)
     const params = {
-      lfoRate: 3.0,      // Hz
-      lfoRateMin: 0.1, lfoRateMax: 12,
-      modDepthFilter: 400,  // Hz deviation applied to filter cutoff
-      modDepthFilterMin: 0, modDepthFilterMax: 2000,
-      modDepthPitch: 4,  // Hz deviation on osc frequency
-      modDepthPitchMin: 0, modDepthPitchMax: 20,
-      reverbMix: 0.25,   // 0..1 (wet)
-      reverbDecay: 2.2,  // seconds (impulse length/decay)
+      lfoRate: 3.0, lfoRateMin: 0.1, lfoRateMax: 12,
+      modDepthFilter: 400, modDepthFilterMin: 0, modDepthFilterMax: 2000,
+      modDepthPitch: 4,   modDepthPitchMin: 0, modDepthPitchMax: 20,
+      reverbMix: 0.25, reverbDecay: 2.2
     };
 
     const readout = document.getElementById('readout');
@@ -173,12 +240,13 @@
       if (master) master.gain.value = muted ? 0 : 0.9;
       muteBtn.textContent = muted ? 'Muted' : 'Unmuted';
     });
+    const pauseBtn = document.getElementById('pauseBtn');
+    pauseBtn.onclick = (e) => { paused = !paused; e.target.textContent = paused ? 'Resume' : 'Pause'; };
 
     function ensureAudio() {
       if (audioCtx) return;
       audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
-      // Master chain
       master = audioCtx.createGain(); master.gain.value = 0.9;
       compressor = audioCtx.createDynamicsCompressor();
       compressor.threshold.setValueAtTime(-24, audioCtx.currentTime);
@@ -187,68 +255,55 @@
       compressor.attack.setValueAtTime(0.003, audioCtx.currentTime);
       compressor.release.setValueAtTime(0.25, audioCtx.currentTime);
 
-      // Reverb (Convolver) with generated impulse
       convolver = audioCtx.createConvolver();
       convolver.buffer = makeImpulseResponse(audioCtx, params.reverbDecay, 0.3);
       wetGain = audioCtx.createGain(); dryGain = audioCtx.createGain();
       setReverbMix(params.reverbMix);
 
-      // LFO
       lfoOsc = audioCtx.createOscillator();
       lfoOsc.type = 'sine';
       lfoOsc.frequency.value = params.lfoRate;
-      lfoGain = audioCtx.createGain(); // global LFO amplitude; per-voice sends will scale this further
-      lfoGain.gain.value = 1; // keep at 1; voice sends control actual depth
+      lfoGain = audioCtx.createGain(); lfoGain.gain.value = 1;
       lfoOsc.connect(lfoGain);
       lfoOsc.start();
 
-      // Wire master
       dryGain.connect(compressor);
       wetGain.connect(compressor);
       compressor.connect(audioCtx.destination);
     }
 
-    // Simple impulse generator (noise tail) for reverb
     function makeImpulseResponse(ctx, seconds=2.0, decay=0.3) {
-      const rate = ctx.sampleRate;
-      const length = Math.max(1, (seconds * rate)|0);
+      const rate = ctx.sampleRate, length = Math.max(1, (seconds * rate)|0);
       const impulse = ctx.createBuffer(2, length, rate);
       for (let ch = 0; ch < 2; ch++) {
         const chan = impulse.getChannelData(ch);
         for (let i = 0; i < length; i++) {
-          // Exponential decay of noise
           chan[i] = (Math.random()*2 - 1) * Math.pow(1 - i/length, decay*6);
         }
       }
       return impulse;
     }
-
     function setReverbMix(mix) {
       params.reverbMix = Math.min(1, Math.max(0, mix));
       if (!dryGain || !wetGain) return;
-      // Constant power-ish crossfade
       const x = params.reverbMix;
       dryGain.gain.value = Math.cos(x * Math.PI/2);
       wetGain.gain.value = Math.sin(x * Math.PI/2);
       updateHUD();
     }
-
-    // Map keyboard column to base freq + filter brightness
     function soundForKey(key) {
       const { idx, max } = keyToIndex(key);
-      const t = max ? idx / max : 0; // 0..1 left→right
-      const freq = 880 - t * (880 - 110);    // 880 → 110 Hz
-      const cutoff = 12000 - t * 10000;      // 12k → 2k
+      const t = max ? idx / max : 0;
+      const freq = 880 - t * (880 - 110);
+      const cutoff = 12000 - t * 10000;
       return { freq, cutoff, t };
     }
-
     function playPercussiveTone(key) {
       ensureAudio();
       if (!audioCtx) return;
       const now = audioCtx.currentTime;
       const { freq, cutoff, t } = soundForKey(key);
 
-      // Voice nodes
       const osc = audioCtx.createOscillator();
       osc.type = t < 0.5 ? 'triangle' : 'sawtooth';
       osc.frequency.setValueAtTime(freq, now);
@@ -258,12 +313,11 @@
       filter.frequency.setValueAtTime(cutoff, now);
       filter.Q.setValueAtTime(0.7 + t*0.6, now);
 
-      const env = audioCtx.createGain(); // tone envelope
+      const env = audioCtx.createGain();
       env.gain.setValueAtTime(0, now);
       env.gain.linearRampToValueAtTime(0.9, now + 0.005);
       env.gain.exponentialRampToValueAtTime(0.0008, now + 0.35 + t*0.15);
 
-      // Noise transient for drum click
       const noise = audioCtx.createBufferSource();
       const buffer = audioCtx.createBuffer(1, audioCtx.sampleRate * 0.1, audioCtx.sampleRate);
       const data = buffer.getChannelData(0);
@@ -273,24 +327,14 @@
       env2.gain.setValueAtTime(0.6, now);
       env2.gain.exponentialRampToValueAtTime(0.0008, now + 0.08 + t*0.05);
 
-      // Reverb routing
-      const wet = audioCtx.createGain();
-      const dry = audioCtx.createGain();
+      // Per-voice modulation sends
+      const lfoToFilter = audioCtx.createGain(); lfoToFilter.gain.value = params.modDepthFilter;
+      const lfoToPitch  = audioCtx.createGain(); lfoToPitch.gain.value  = params.modDepthPitch;
+      lfoGain.connect(lfoToFilter); lfoToFilter.connect(filter.frequency);
+      lfoGain.connect(lfoToPitch);  lfoToPitch.connect(osc.frequency);
 
-      // ===== Modulation sends (per-voice) =====
-      // Filter cutoff modulation
-      const lfoToFilter = audioCtx.createGain();
-      lfoToFilter.gain.value = params.modDepthFilter;  // Hz deviation
-      lfoGain.connect(lfoToFilter);
-      lfoToFilter.connect(filter.frequency);
+      const wet = audioCtx.createGain(), dry = audioCtx.createGain();
 
-      // Pitch modulation
-      const lfoToPitch = audioCtx.createGain();
-      lfoToPitch.gain.value = params.modDepthPitch;    // Hz deviation on osc frequency
-      lfoGain.connect(lfoToPitch);
-      lfoToPitch.connect(osc.frequency);
-
-      // Wiring
       osc.connect(filter);
       filter.connect(env);
       env.connect(dry);
@@ -300,18 +344,10 @@
       env2.connect(dry);
       env2.connect(wet);
 
-      // Global buses
-      if (!convolver) {
-        // ensureAudio sets it; guard for timing
-        ensureAudio();
-      }
-      wet.connect(convolver);
-      convolver.connect(wetGain);
+      wet.connect(convolver); convolver.connect(wetGain);
       dry.connect(dryGain);
 
-      // Start/stop
-      osc.start(now);
-      noise.start(now);
+      osc.start(now); noise.start(now);
       osc.stop(now + 0.6 + t*0.2);
       noise.stop(now + 0.12 + t*0.05);
     }
@@ -319,14 +355,7 @@
     /* =========================
        INPUT / CONTROLS
        ========================= */
-    const pauseBtn = document.getElementById('pauseBtn');
-    pauseBtn.onclick = (e) => {
-      paused = !paused;
-      e.target.textContent = paused ? 'Resume' : 'Pause';
-    };
-    document.getElementById('clearBtn').onclick = () => { fillBG(); bursts.length = 0; };
-
-    // Key presses for notes/visuals
+    document.getElementById('clearBtn').onclick = () => { clearBuffer(); bursts.length = 0; };
     addEventListener('keydown', async (e) => {
       // Controls first
       if (handleControlKeys(e)) return;
@@ -341,18 +370,8 @@
       }
 
       spawnFractalFromKey(k);
-      pulseAtCenter();
       if (!muted) playPercussiveTone(k);
     });
-
-    function pulseAtCenter() {
-      const g = ctx.createRadialGradient(W/2, H/2, 0, W/2, H/2, Math.max(W,H)*0.6);
-      g.addColorStop(0, 'rgba(255,255,255,0.02)');
-      g.addColorStop(1, 'rgba(0,0,0,0.00)');
-      ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
-    }
-
-    function clamp(v, lo, hi){ return Math.min(hi, Math.max(lo, v)); }
 
     function handleControlKeys(e) {
       const k = e.key;
@@ -361,30 +380,29 @@
         document.getElementById('muteBtn').textContent = muted ? 'Muted' : 'Unmuted';
         e.preventDefault(); return true;
       }
-      if (k === 'p' || k === 'P') { paused = !paused; pauseBtn.textContent = paused ? 'Resume' : 'Pause'; e.preventDefault(); return true; }
-      if (k === 'c' || k === 'C') { fillBG(); bursts.length = 0; e.preventDefault(); return true; }
+      if (k === 'p' || k === 'P') {
+        paused = !paused; document.getElementById('pauseBtn').textContent = paused ? 'Resume' : 'Pause';
+        e.preventDefault(); return true;
+      }
+      if (k === 'c' || k === 'C') { clearBuffer(); bursts.length = 0; e.preventDefault(); return true; }
+      if (k === 'f' || k === 'F') { toggleFullscreen(); e.preventDefault(); return true; }
 
-      // Arrow keys: mod + reverb
+      // Arrow keys: modulation + reverb
       if (k === 'ArrowLeft' || k === 'ArrowRight' || k === 'ArrowUp' || k === 'ArrowDown') {
         ensureAudio();
         if (!audioCtx) return true;
         if (k === 'ArrowLeft' || k === 'ArrowRight') {
-          // Mod depth (filter + a bit of pitch)
-          const delta = (e.shiftKey ? 0 : 1) * (k === 'ArrowRight' ? 60 : -60); // Hz
-          params.modDepthFilter = clamp(params.modDepthFilter + delta,
-            params.modDepthFilterMin, params.modDepthFilterMax);
-          // pitch depth tied loosely to filter depth
-          params.modDepthPitch = clamp((params.modDepthFilter / 100),
-            params.modDepthPitchMin, params.modDepthPitchMax);
+          // Mod depth (filter) + tied pitch depth
+          const delta = (e.shiftKey ? 0 : 1) * (k === 'ArrowRight' ? 60 : -60);
+          params.modDepthFilter = clamp(params.modDepthFilter + delta, params.modDepthFilterMin, params.modDepthFilterMax);
+          params.modDepthPitch  = clamp((params.modDepthFilter / 100), params.modDepthPitchMin, params.modDepthPitchMax);
         }
         if (e.shiftKey && (k === 'ArrowLeft' || k === 'ArrowRight')) {
-          // LFO rate (Shift + Left/Right)
           const rDelta = (k === 'ArrowRight' ? 0.25 : -0.25);
           params.lfoRate = clamp(params.lfoRate + rDelta, params.lfoRateMin, params.lfoRateMax);
           if (lfoOsc) lfoOsc.frequency.setValueAtTime(params.lfoRate, audioCtx.currentTime);
         }
         if (k === 'ArrowUp' || k === 'ArrowDown') {
-          // Reverb mix
           const mixDelta = (k === 'ArrowUp' ? 0.05 : -0.05);
           setReverbMix(params.reverbMix + mixDelta);
         }
@@ -394,6 +412,12 @@
       }
       return false;
     }
+    function toggleFullscreen() {
+      const el = document.documentElement;
+      if (!document.fullscreenElement) el.requestFullscreen?.();
+      else document.exitFullscreen?.();
+    }
+    function clamp(v, lo, hi){ return Math.min(hi, Math.max(lo, v)); }
   </script>
 </body>
 </html>
